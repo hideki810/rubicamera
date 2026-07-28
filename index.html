@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ルビカメラ（高精度版）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
+<style>
+  :root{
+    --ink:#1b2a41;
+    --ink-soft:#4a5a72;
+    --paper:#ffffff;
+    --bg:#eef1f5;
+    --accent:#2b6cb0;
+    --shu:#b5442e;
+    --line:#d8dde5;
+    --radius:16px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:'Noto Sans JP',system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    display:flex;flex-direction:column;
+    max-width:560px;margin:0 auto;
+    min-height:100dvh;
+  }
+  header{padding:18px 20px 12px;display:flex;align-items:center;gap:10px}
+  header .titles{display:flex;align-items:baseline;gap:10px;flex:1}
+  header h1{
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:22px;font-weight:700;letter-spacing:.04em;
+  }
+  header h1 ruby rt{font-size:9px;color:var(--accent);font-weight:500}
+  header p{font-size:11px;color:var(--ink-soft)}
+  #btnSettings{
+    border:1px solid var(--line);background:var(--paper);
+    width:38px;height:38px;border-radius:50%;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);
+  }
+  #btnSettings svg{width:18px;height:18px}
+  .mode-chip{
+    align-self:flex-start;
+    font-size:11px;font-weight:500;
+    padding:4px 12px;border-radius:99px;
+    background:var(--paper);border:1px solid var(--line);color:var(--ink-soft);
+  }
+  .mode-chip.ai{border-color:var(--accent);color:var(--accent)}
+  main{flex:1;padding:0 16px 16px;display:flex;flex-direction:column;gap:14px}
+
+  .capture{
+    border:none;width:100%;
+    background:var(--ink);color:#fff;
+    border-radius:var(--radius);
+    padding:22px 20px;
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:18px;font-weight:700;letter-spacing:.06em;
+    display:flex;align-items:center;justify-content:center;gap:12px;
+    cursor:pointer;
+    box-shadow:0 4px 14px rgba(27,42,65,.25);
+    transition:transform .12s ease;
+  }
+  .capture:active{transform:scale(.97)}
+  .capture svg{width:26px;height:26px;flex:none}
+  .sub-actions{display:flex;gap:10px}
+  .sub-actions button{
+    flex:1;border:1px solid var(--line);background:var(--paper);
+    color:var(--ink-soft);border-radius:12px;padding:12px;
+    font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;
+  }
+
+  /* 設定パネル */
+  .settings{
+    display:none;flex-direction:column;gap:12px;
+    background:var(--paper);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;
+  }
+  .settings h2{font-size:15px;font-weight:700}
+  .settings p{font-size:12px;color:var(--ink-soft);line-height:1.8}
+  .settings ol{font-size:12px;color:var(--ink-soft);line-height:1.9;padding-left:20px}
+  .settings a{color:var(--accent)}
+  .settings input{
+    width:100%;border:1px solid var(--line);border-radius:10px;
+    padding:12px;font-size:14px;font-family:inherit;
+  }
+  .settings .btns{display:flex;gap:8px}
+  .settings .btns button{
+    flex:1;border-radius:10px;padding:12px;font-size:14px;font-weight:500;
+    cursor:pointer;font-family:inherit;
+  }
+  #btnSaveKey{border:none;background:var(--accent);color:#fff}
+  #btnDeleteKey{border:1px solid var(--line);background:var(--paper);color:var(--shu)}
+
+  .preview{
+    display:none;background:var(--paper);border-radius:var(--radius);
+    overflow:hidden;border:1px solid var(--line);
+  }
+  .preview img{width:100%;display:block;max-height:30dvh;object-fit:contain;background:#f4f4f4}
+
+  .status{
+    display:none;flex-direction:column;gap:10px;
+    background:var(--paper);border-radius:var(--radius);
+    padding:16px 18px;border:1px solid var(--line);
+  }
+  .status .row{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--ink-soft)}
+  .spinner{
+    width:20px;height:20px;flex:none;
+    border:3px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin 1s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.spinner{animation-duration:2.5s}}
+  .bar{height:6px;border-radius:3px;background:var(--bg);overflow:hidden}
+  .bar > div{height:100%;width:0%;background:var(--accent);transition:width .2s}
+
+  .error{
+    display:none;background:#fdf3f1;border:1px solid #eccfc8;
+    color:var(--shu);border-radius:var(--radius);
+    padding:14px 16px;font-size:13px;line-height:1.6;
+    white-space:pre-line;
+  }
+
+  .result-wrap{display:none;flex-direction:column;gap:10px}
+  .result-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .result-tools .label{font-size:12px;color:var(--ink-soft);margin-right:auto}
+  .result-tools button{
+    border:1px solid var(--line);background:var(--paper);
+    border-radius:10px;padding:8px 14px;font-size:14px;
+    color:var(--ink);cursor:pointer;font-family:inherit;font-weight:500;
+  }
+  .result-tools button.active{border-color:var(--accent);color:var(--accent)}
+  .result{
+    background:var(--paper);
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    padding:26px 22px;
+    font-size:20px;
+    line-height:2.6;
+    letter-spacing:.03em;
+    overflow-wrap:anywhere;
+    background-image:repeating-linear-gradient(
+      to bottom, transparent 0, transparent 51px, #f0f2f6 51px, #f0f2f6 52px);
+  }
+  .result ruby rt{font-size:.45em;color:var(--shu);letter-spacing:0;font-weight:500}
+  .result.size-l{font-size:26px;line-height:2.7}
+  .copy-note{font-size:11px;color:var(--ink-soft);text-align:center;line-height:1.6}
+
+  footer{padding:10px 16px 14px;text-align:center;font-size:10px;color:#9aa4b2;line-height:1.7}
+</style>
+</head>
+<body>
+<header>
+  <div class="titles">
+    <h1><ruby>ルビ<rt>るび</rt></ruby>カメラ</h1>
+    <p>撮った文字にふりがな</p>
+  </div>
+  <button id="btnSettings" aria-label="設定">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <span class="mode-chip" id="modeChip">オフラインモード（精度：ふつう）</span>
+
+  <div class="settings" id="settings">
+    <h2>高精度モードの設定</h2>
+    <p>Googleの無料AIキー（Gemini APIキー）を入れると、読み取り精度が大きく上がります。クレジットカード登録は不要です。</p>
+    <ol>
+      <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> を開く</li>
+      <li>Googleアカウントでログイン</li>
+      <li>「APIキーを作成」を押して、出てきたキーをコピー</li>
+      <li>下の欄に貼り付けて保存</li>
+    </ol>
+    <input type="password" id="apiKeyInput" placeholder="APIキーを貼り付け（AIza…で始まる文字列）" autocomplete="off">
+    <div class="btns">
+      <button id="btnSaveKey">保存する</button>
+      <button id="btnDeleteKey">キーを削除</button>
+    </div>
+    <button id="btnTest" style="border:1px solid var(--accent);background:var(--paper);color:var(--accent);border-radius:10px;padding:12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;">接続テスト（うまく動かないとき）</button>
+    <div id="testResult" style="display:none;white-space:pre-line;font-size:12px;line-height:1.9;background:var(--bg);border-radius:10px;padding:12px;color:var(--ink);"></div>
+    <p>キーはこのスマホの中にだけ保存されます。キーがない場合は、通信不要のオフライン読み取りで動きます。</p>
+  </div>
+
+  <button class="capture" id="btnCapture">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    カメラで撮る
+  </button>
+  <div class="sub-actions">
+    <button id="btnGallery">写真を選ぶ</button>
+    <button id="btnReset">やり直す</button>
+  </div>
+
+  <input type="file" id="fileCamera" accept="image/*" capture="environment" hidden>
+  <input type="file" id="fileGallery" accept="image/*" hidden>
+
+  <div class="preview" id="preview"><img id="previewImg" alt="撮影した写真"></div>
+
+  <div class="status" id="status">
+    <div class="row"><div class="spinner"></div><span id="statusText">準備中…</span></div>
+    <div class="bar"><div id="progressBar"></div></div>
+  </div>
+
+  <div class="error" id="error"></div>
+
+  <div class="result-wrap" id="resultWrap">
+    <div class="result-tools">
+      <span class="label">読み取り結果</span>
+      <button id="btnSize">文字 大</button>
+      <button id="btnCopy">コピー</button>
+    </div>
+    <div class="result" id="result"></div>
+    <div class="copy-note">コピーすると「漢字（かんじ）」の形式になります<br>読み間違いがあることがあります。大事な文書は元の文字も確認してください</div>
+  </div>
+</main>
+
+<footer>
+  ルビカメラ v6 · オフラインモードでは写真は端末の外に送信されません<br>
+  高精度モードでは写真がGoogleのAIに送信されます
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let segments = [];
+let tokenizerPromise = null;
+const mem = {};
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
+};
+
+/* ---------- モード表示・設定 ---------- */
+function apiKey(){ return (store.get('rubiKey') || '').trim(); }
+function updateMode(){
+  const chip = $('modeChip');
+  if(apiKey()){
+    chip.textContent = '高精度モード（AI読み取り）';
+    chip.classList.add('ai');
+  } else {
+    chip.textContent = 'オフラインモード（精度：ふつう）';
+    chip.classList.remove('ai');
+  }
+}
+/* 共有リンク対応：URLの「#k=キー」を読み取って自動設定し、URLからは消す */
+(function(){
+  const m = location.hash.match(/[#&]k=([^&]+)/);
+  if(m){
+    store.set('rubiKey', decodeURIComponent(m[1]));
+    try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
+  }
+})();
+updateMode();
+
+$('btnSettings').onclick = () => {
+  const s = $('settings');
+  const open = s.style.display !== 'flex';
+  s.style.display = open ? 'flex' : 'none';
+  if(open) $('apiKeyInput').value = apiKey();
+};
+$('btnSaveKey').onclick = () => {
+  const v = $('apiKeyInput').value.trim();
+  if(!v){ alert('キーを貼り付けてから保存を押してください'); return; }
+  store.set('rubiKey', v);
+  updateMode();
+  $('settings').style.display = 'none';
+};
+$('btnDeleteKey').onclick = () => {
+  store.del('rubiKey');
+  $('apiKeyInput').value = '';
+  updateMode();
+};
+$('btnTest').onclick = testConnection;
+
+async function testConnection(){
+  const out = $('testResult');
+  out.style.display = 'block';
+  out.textContent = 'テスト中…（10秒ほどかかります）';
+  const k = ($('apiKeyInput').value || '').trim() || apiKey();
+  if(!k){ out.textContent = 'キーが未設定です。上の欄にキーを貼り付けてから押してください。'; return; }
+  const lines = [];
+
+  // ① 鍵とネットの確認（軽い問い合わせ）
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(k)}&pageSize=5`);
+    if(r.ok){
+      lines.push('① 鍵とネットの確認：OK');
+    } else {
+      let msg = 'HTTP ' + r.status;
+      try { const b = await r.json(); if(b.error?.message) msg += ' / ' + b.error.message; } catch(e){}
+      lines.push('① 鍵とネットの確認：NG → ' + msg);
+    }
+  } catch(e){
+    lines.push('① 鍵とネットの確認：NG → ' + (e.name || '') + ' ' + (e.message || '通信不可'));
+  }
+
+  // ② AIへの小さな送信テスト
+  try {
+    const models = await getModelCandidates();
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${models[0]}:generateContent?key=${encodeURIComponent(k)}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contents: [{parts: [{text: '「はい」とだけ答えてください'}]}]})
+      }
+    );
+    if(r.ok){
+      lines.push('② AIへの送信：OK（' + models[0] + '）');
+      lines.push('→ 通信は正常です。写真で失敗する場合は、写真が大きすぎる可能性があります。小さめのスクリーンショットでお試しください。');
+    } else {
+      let msg = 'HTTP ' + r.status;
+      try { const b = await r.json(); if(b.error?.message) msg += ' / ' + b.error.message; } catch(e){}
+      lines.push('② AIへの送信：NG → ' + msg);
+    }
+  } catch(e){
+    lines.push('② AIへの送信：NG → ' + (e.name || '') + ' ' + (e.message || '通信不可'));
+  }
+
+  // ③ Googleサーバーへの到達確認（応答の中身は見ない疎通テスト）
+  try {
+    await fetch('https://generativelanguage.googleapis.com/', {mode: 'no-cors'});
+    lines.push('③ Googleサーバーへの到達：OK');
+  } catch(e){
+    lines.push('③ Googleサーバーへの到達：NG');
+  }
+
+  // ④ 比較用：別のサーバーへの通信
+  try {
+    const r = await fetch('https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/package.json');
+    lines.push('④ 別サーバーとの通信：' + (r.ok ? 'OK' : 'NG（HTTP ' + r.status + '）'));
+  } catch(e){
+    lines.push('④ 別サーバーとの通信：NG');
+  }
+
+  // ⑤ 自分のサイトとの通信（同じサーバーへの通信）
+  try {
+    const r = await fetch(location.pathname + '?ping=' + Date.now(), {cache: 'no-store'});
+    lines.push('⑤ 自分のサイトとの通信：' + (r.ok ? 'OK' : 'NG（HTTP ' + r.status + '）'));
+  } catch(e){
+    lines.push('⑤ 自分のサイトとの通信：NG');
+  }
+
+  // 自動判定
+  const joined = lines.join(' ');
+  if(/①[^②③④⑤]*NG/.test(joined)){
+    if(/③[^④⑤]*OK/.test(joined)){
+      lines.push('【判定】Googleには届いていますが、応答の受け取りが遮断されています。Wi-Fiとモバイル回線を切り替えて、もう一度テストしてください。');
+    } else if(/④[^⑤]*OK/.test(joined)){
+      lines.push('【判定】GoogleのAIサーバーへの通信だけがブロックされています。原因の候補：セキュリティアプリのWeb保護／キャリアのフィルタリングサービス／スマホ設定の「プライベートDNS」。Wi-Fiに切り替える、またはそれらを一時オフにして再テストしてください。');
+    } else if(/⑤.*OK/.test(joined)){
+      lines.push('【判定】外部サーバーへの通信だけが全てブロックされています。このスマホの保護機能（セキュリティアプリ／フィルタリング／VPN／プライベートDNS）が原因の可能性が非常に高いです。設定→ネットワークで「VPN」「プライベートDNS」を確認し、セキュリティアプリのWeb保護を一時オフにして再テストしてください。');
+    } else {
+      lines.push('【判定】通信がすべて失敗しています。①機内モードを一度オン→オフ、②Wi-Fiに切り替え、で再テストしてください。それでもダメなら、別のスマホで同じURLを開いてテストしてみてください。');
+    }
+  }
+
+  lines.push('この結果をスクショしてClaudeに見せてください。');
+  out.textContent = lines.join('\n');
+}
+
+/* ---------- 基本操作 ---------- */
+$('btnCapture').onclick = () => $('fileCamera').click();
+$('btnGallery').onclick = () => $('fileGallery').click();
+$('btnReset').onclick = resetAll;
+$('fileCamera').onchange = e => handleFile(e.target.files[0]);
+$('fileGallery').onchange = e => handleFile(e.target.files[0]);
+
+$('btnSize').onclick = () => {
+  const large = $('result').classList.toggle('size-l');
+  $('btnSize').textContent = large ? '文字 小' : '文字 大';
+  $('btnSize').classList.toggle('active', large);
+};
+
+$('btnCopy').onclick = async () => {
+  const text = segments.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join('');
+  try {
+    await navigator.clipboard.writeText(text);
+    $('btnCopy').textContent = 'コピーしました';
+    setTimeout(() => $('btnCopy').textContent = 'コピー', 1500);
+  } catch(e){
+    showError('コピーできませんでした。文字を長押しして選択してください。');
+  }
+};
+
+function resetAll(){
+  segments = [];
+  $('preview').style.display = 'none';
+  $('status').style.display = 'none';
+  $('error').style.display = 'none';
+  $('resultWrap').style.display = 'none';
+  $('fileCamera').value = '';
+  $('fileGallery').value = '';
+}
+function setStatus(text, pct){
+  $('status').style.display = 'flex';
+  $('statusText').textContent = text;
+  $('progressBar').style.width = (pct == null ? 10 : Math.round(pct * 100)) + '%';
+}
+function showError(msg){
+  $('status').style.display = 'none';
+  $('error').textContent = msg;
+  $('error').style.display = 'block';
+}
+
+/* ---------- メイン ---------- */
+async function handleFile(file){
+  if(!file) return;
+  resetAll();
+  $('previewImg').onerror = () => { $('preview').style.display = 'none'; };
+  $('previewImg').src = URL.createObjectURL(file);
+  $('preview').style.display = 'block';
+
+  try {
+    if(apiKey()){
+      await runGemini(file);
+    } else {
+      await runOffline(file);
+    }
+  } catch(err){
+    console.error(err);
+    showError(err.userMessage ||
+      '読み取りに失敗しました。インターネット接続を確認して、もう一度お試しください。\n【詳細】' + (err && err.message ? err.message : '不明')
+      + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。');
+  }
+}
+
+/* ---------- 高精度モード（Gemini） ---------- */
+async function runGemini(file){
+  setStatus('AIが文字を読み取っています…', 0.3);
+  const {base64, mediaType} = await toBase64(file, 1568, .85, false);
+
+  const prompt = `この画像に写っている日本語の文章を読み取り、漢字にひらがなの読み（ルビ）を付けてください。
+
+必ず次のJSON形式のみで答えてください。前置きやマークダウンの\`\`\`は一切不要です。
+
+{"segments":[{"t":"漢字部分","r":"よみがな"},{"t":"ひらがな・カタカナ・記号など","r":null}]}
+
+ルール:
+- 文章を先頭から順に区切り、漢字を含む部分には "r" に読みを入れる
+- 送り仮名は分けて、漢字部分だけに読みを付ける（例：「読み」→ {"t":"読","r":"よ"},{"t":"み","r":null}）
+- 漢字を含まない部分（ひらがな、カタカナ、数字、記号、改行）は "r": null
+- 改行は "t":"\\n","r":null として保持する
+- 読みは文脈に合わせた正しい読み方にする
+- 画像に日本語の文章がない場合は {"segments":[]} と答える`;
+
+  const models = await getModelCandidates();
+  const errors = [];
+  for(const model of models){
+    let res;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+        {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {inline_data: {mime_type: mediaType, data: base64}},
+                {text: prompt}
+              ]
+            }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              maxOutputTokens: 8192
+            }
+          })
+        }
+      );
+    } catch(e){
+      errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
+      continue;
+    }
+
+    if(!res.ok){
+      let detail = 'HTTP ' + res.status;
+      try {
+        const eb = await res.json();
+        if(eb.error?.message) detail = eb.error.message;
+      } catch(e){}
+      if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
+        const e = new Error('bad key');
+        e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
+        throw e;
+      }
+      errors.push(model + ': ' + detail);
+      continue;
+    }
+
+    try {
+      const data = await res.json();
+      const text = (data.candidates?.[0]?.content?.parts || [])
+        .map(p => p.text || '').join('');
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if(start < 0 || end <= start) throw new Error('no json in response');
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      segments = Array.isArray(parsed.segments) ? parsed.segments : [];
+      if(segments.length === 0){
+        showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
+        return;
+      }
+      renderResult();
+      return;
+    } catch(e){
+      errors.push(model + ': 応答の解析に失敗');
+      continue;
+    }
+  }
+  const err = new Error('gemini failed');
+  err.userMessage = 'AIでの読み取りに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
+    + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  throw err;
+}
+
+/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする） */
+let modelCache = null;
+async function getModelCandidates(){
+  if(modelCache) return modelCache;
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
+    );
+    if(!res.ok) return fallback;
+    const data = await res.json();
+    const names = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => (m.name || '').replace('models/', ''))
+      .filter(n => /^gemini-/.test(n) && /flash/.test(n))
+      .filter(n => !/(preview|exp|thinking|image|tts|audio|live|8b)/.test(n));
+    // バージョン番号が新しい順、同じなら「lite」でない方を優先
+    names.sort((a, b) => {
+      const va = parseFloat((a.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
+      const vb = parseFloat((b.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
+      if(vb !== va) return vb - va;
+      return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
+    });
+    modelCache = names.length ? names.slice(0, 3) : fallback;
+    return modelCache;
+  } catch(e){
+    return fallback;
+  }
+}
+
+/* ---------- オフラインモード（Tesseract＋kuromoji） ---------- */
+function getTokenizer(){
+  if(!tokenizerPromise){
+    tokenizerPromise = new Promise((resolve, reject) => {
+      kuromoji.builder({
+        dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
+      }).build((err, tokenizer) => err ? reject(err) : resolve(tokenizer));
+    });
+    tokenizerPromise.catch(() => { tokenizerPromise = null; });
+  }
+  return tokenizerPromise;
+}
+
+async function runOffline(file){
+  setStatus('じゅんび中…（初回は辞書の読み込みに時間がかかります）', 0.05);
+  const [tokenizer, canvas] = await Promise.all([
+    getTokenizer(),
+    prepareImage(file, 2000)
+  ]);
+
+  const {data} = await Tesseract.recognize(canvas, 'jpn', {
+    logger: m => {
+      if(m.status === 'recognizing text'){
+        setStatus('文字を読み取り中… ' + Math.round(m.progress * 100) + '%', 0.2 + m.progress * 0.7);
+      }
+    }
+  });
+
+  setStatus('ふりがなを付けています…', 0.95);
+  const text = cleanOcrText(data.text || '');
+  if(!text.trim()){
+    showError('文字が見つかりませんでした。明るい場所で、文字をまっすぐ大きく撮ってみてください。');
+    return;
+  }
+  segments = buildSegments(text, tokenizer);
+  renderResult();
+}
+
+/* 画像の下ごしらえ：拡大＋白黒2値化（大津の方法）で文字をくっきりさせる */
+function prepareImage(file, maxSize){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let {width:w, height:h} = img;
+      const down = Math.min(1, maxSize / Math.max(w, h));
+      const up = Math.max(w, h) * down < 1200 ? 1200 / (Math.max(w, h) * down) : 1;
+      w = Math.round(w * down * up); h = Math.round(h * down * up);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, w, h);
+      binarize(canvas);
+      resolve(canvas);
+    };
+    img.onerror = () => {
+      const e = new Error('image load failed');
+      e.userMessage = 'この写真の形式はブラウザで開けませんでした（HEIC形式など）。オフラインモードでは、カメラ設定の保存形式を「互換性優先（JPEG）」にするか、写真のスクリーンショットを選んでください。';
+      reject(e);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function binarize(canvas){
+  const ctx = canvas.getContext('2d');
+  const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const p = d.data;
+  const N = p.length / 4;
+  const hist = new Array(256).fill(0);
+  for(let i = 0; i < p.length; i += 4){
+    const g = (p[i]*0.299 + p[i+1]*0.587 + p[i+2]*0.114) | 0;
+    p[i] = g; hist[g]++;
+  }
+  // 大津の方法でしきい値を決める
+  let sum = 0; for(let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0, wB = 0, best = 0, thr = 127;
+  for(let t = 0; t < 256; t++){
+    wB += hist[t]; if(!wB) continue;
+    const wF = N - wB; if(!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const v = wB * wF * (mB - mF) * (mB - mF);
+    if(v > best){ best = v; thr = t; }
+  }
+  let white = 0;
+  for(let i = 0; i < p.length; i += 4){
+    const v = p[i] > thr ? 255 : 0;
+    if(v) white++;
+    p[i] = p[i+1] = p[i+2] = v;
+  }
+  // 黒地に白文字（暗い画面のスクショ等）は反転して「白地に黒文字」にする
+  if(white < N / 2){
+    for(let i = 0; i < p.length; i += 4){
+      const v = 255 - p[i];
+      p[i] = p[i+1] = p[i+2] = v;
+    }
+  }
+  ctx.putImageData(d, 0, 0);
+}
+
+function cleanOcrText(text){
+  return text
+    .replace(/[ \t]+(?=[\u3000-\u9fff\uff00-\uffef])/g, '')
+    .replace(/([\u3000-\u9fff\uff00-\uffef])[ \t]+/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ');
+}
+
+const KANJI_RE = /[\u3400-\u9fff々〆ヶ]/;
+const isKana = c => /[\u3041-\u3096\u30a1-\u30f6ー]/.test(c);
+const kataToHira = s => s.replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+
+function pushToken(list, surface, reading){
+  if(!reading || !KANJI_RE.test(surface)){
+    list.push({t: surface, r: null});
+    return;
+  }
+  let r = kataToHira(reading);
+  let s = surface;
+  let lead = '', tail = '';
+  while(s.length > 1 && r.length > 1 && isKana(s[0]) && kataToHira(s[0]) === r[0]){
+    lead += s[0]; s = s.slice(1); r = r.slice(1);
+  }
+  while(s.length > 1 && r.length > 1 && isKana(s[s.length-1]) && kataToHira(s[s.length-1]) === r[r.length-1]){
+    tail = s[s.length-1] + tail; s = s.slice(0, -1); r = r.slice(0, -1);
+  }
+  if(lead) list.push({t: lead, r: null});
+  list.push({t: s, r: KANJI_RE.test(s) ? r : null});
+  if(tail) list.push({t: tail, r: null});
+}
+
+function buildSegments(text, tokenizer){
+  const out = [];
+  const lines = text.split('\n');
+  lines.forEach((line, i) => {
+    if(line.trim()){
+      for(const tok of tokenizer.tokenize(line)){
+        pushToken(out, tok.surface_form, tok.reading);
+      }
+    }
+    if(i < lines.length - 1) out.push({t: '\n', r: null});
+  });
+  return out;
+}
+
+/* ---------- 共通 ---------- */
+/* まず縮小変換を試し、開けない形式（HEIC等）は原本をそのままAIに送る */
+async function toBase64(file, maxSize, quality){
+  try {
+    return await canvasBase64(file, maxSize, quality);
+  } catch(e){
+    if(file.size > 15 * 1024 * 1024){
+      const err = new Error('too big');
+      err.userMessage = '写真のサイズが大きすぎて送れませんでした。カメラ設定の画質を下げるか、写真のスクリーンショットを撮ってそれを選んでください。';
+      throw err;
+    }
+    let mime = file.type;
+    if(!mime){
+      const n = (file.name || '').toLowerCase();
+      mime = (n.endsWith('.heic') || n.endsWith('.heif')) ? 'image/heic' : 'image/jpeg';
+    }
+    const raw = await fileToBase64(file);
+    return {base64: raw, mediaType: mime};
+  }
+}
+
+function canvasBase64(file, maxSize, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let {width:w, height:h} = img;
+      const scale = Math.min(1, maxSize / Math.max(w, h));
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve({base64: dataUrl.split(',')[1], mediaType: 'image/jpeg'});
+    };
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = () => reject(new Error('read failed'));
+    r.readAsDataURL(file);
+  });
+}
+
+function renderResult(){
+  $('status').style.display = 'none';
+  const el = $('result');
+  el.innerHTML = '';
+  for(const s of segments){
+    if(s.t === '\n'){ el.appendChild(document.createElement('br')); continue; }
+    if(!s.t) continue;
+    if(s.r){
+      const ruby = document.createElement('ruby');
+      ruby.appendChild(document.createTextNode(s.t));
+      const rt = document.createElement('rt');
+      rt.textContent = s.r;
+      ruby.appendChild(rt);
+      el.appendChild(ruby);
+    } else {
+      el.appendChild(document.createTextNode(s.t));
+    }
+  }
+  $('resultWrap').style.display = 'flex';
+}
+</script>
+</body>
+</html>
