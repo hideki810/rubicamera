@@ -176,7 +176,7 @@
       <li>「APIキーを作成」を押して、出てきたキーをコピー</li>
       <li>下の欄に貼り付けて保存</li>
     </ol>
-    <input type="password" id="apiKeyInput" placeholder="APIキーを貼り付け（AIza…で始まる文字列）" autocomplete="off">
+    <input type="password" id="apiKeyInput" placeholder="APIキーを貼り付け" autocomplete="off">
     <div class="btns">
       <button id="btnSaveKey">保存する</button>
       <button id="btnDeleteKey">キーを削除</button>
@@ -219,7 +219,7 @@
 </main>
 
 <footer>
-  ルビカメラ v6.2 · オフラインモードでは写真は端末の外に送信されません<br>
+  ルビカメラ v6.3 · オフラインモードでは写真は端末の外に送信されません<br>
   高精度モードでは写真がGoogleのAIに送信されます
 </footer>
 
@@ -243,11 +243,13 @@ function normalizeKey(v){
   s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
   /* 空白・改行・見えない文字を除去 */
   s = s.replace(/[\s 　​-‍﻿]/g, '');
-  /* URLごと貼られた場合などは、キー部分（AIza…）だけを取り出す */
-  const m = s.match(/AIza[0-9A-Za-z_\-]{10,}/);
-  return m ? m[0] : s;
+  /* URLごと貼られた場合は #k= より後ろのキー部分だけを取り出す */
+  const u = s.match(/[#&]k=([^&#?]+)/);
+  if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
+  return s;
 }
-function keyLooksValid(k){ return /^AIza[0-9A-Za-z_\-]{20,}$/.test(k); }
+/* キーの形式は複数あるため厳しくしない：半角の英数記号だけで20文字以上ならキーらしい形とみなす */
+function keyLooksValid(k){ return /^[\x21-\x7E]{20,}$/.test(k); }
 function updateMode(){
   const chip = $('modeChip');
   if(apiKey()){
@@ -278,7 +280,7 @@ $('btnSaveKey').onclick = () => {
   const v = normalizeKey($('apiKeyInput').value);
   if(!v){ alert('キーを貼り付けてから保存を押してください'); return; }
   if(!keyLooksValid(v)){
-    alert('キーの形が正しくないようです（先頭「' + v.slice(0, 4) + '」・' + v.length + '文字）。\n正しいキーは半角の AIza で始まる約39文字の英数字です。\naistudio.google.com/apikey でキーをコピーして、そのまま貼り付けてください。');
+    alert('キーの形が正しくないようです（先頭「' + v.slice(0, 4) + '」・' + v.length + '文字）。\n日本語や空白が混ざっていないか確認してください。\naistudio.google.com/apikey でキーをコピーして、そのまま貼り付けてください。');
     return;
   }
   store.set('rubiKey', v);
@@ -302,9 +304,9 @@ async function testConnection(){
 
   // ⓪ 保存されているキーの形式チェック
   if(keyLooksValid(k)){
-    lines.push('⓪ キーの形式：OK（AIza… ' + k.length + '文字）');
+    lines.push('⓪ 保存されているキー：先頭「' + k.slice(0, 4) + '」・' + k.length + '文字（形式チェックOK）');
   } else {
-    lines.push('⓪ キーの形式：NG（先頭「' + k.slice(0, 4) + '」・' + k.length + '文字）→ 保存されているキーが正しい形ではありません。「キーを削除」を押してから、キーを入れ直してください。');
+    lines.push('⓪ 保存されているキー：先頭「' + k.slice(0, 4) + '」・' + k.length + '文字 → 形式チェックNG（日本語や空白が混ざっています）。「キーを削除」を押してから、キーを入れ直してください。');
   }
 
   // ① 鍵とネットの確認（軽い問い合わせ）
