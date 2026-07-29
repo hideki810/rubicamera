@@ -238,7 +238,7 @@
 </main>
 
 <footer>
-  ルビカメラ２ v1.1 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
+  ルビカメラ２ v1.2 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
@@ -305,13 +305,14 @@ let lastScanEmpty = false;    // 最後の読み取りが「文字なし」だ�
 let lines = [];               // 最新の読み取り結果
 let wakeLock = null;
 
-const SAMPLE_MS = 550;        // 動きチェックの間隔
-const STEADY_T = 5;           // これ以下の差なら「静止」とみなす
-const CHANGE_T = 13;          // これ以上の差なら「新しい場面」とみなす
-const UNFREEZE_T = 17;        // 固定表示を解除する動きの大きさ
-const MIN_INTERVAL = 8000;    // 読み取りの最短間隔（無料キーの回数制限対策）
+const SAMPLE_MS = 400;        // 動きチェックの間隔
+const STEADY_T = 12;          // これ以下の差なら「静止」とみなす（手ブレ込みで緩め）
+const CHANGE_T = 10;          // これ以上の差なら「新しい場面」とみなす
+const UNFREEZE_T = 14;        // 固定表示を解除する動きの大きさ
+const MIN_INTERVAL = 5000;    // 読み取りの最短間隔（無料キーの回数制限対策）
 let backoffUntil = 0;         // 混雑（429）時はこの時刻まで読み取りを休止
-const CAPTURE_MAX = 1280;     // 送信画像の長辺
+let unsteadyTicks = 0;        // 揺れ続けている回数（長く続いたら揺れていても読む）
+const CAPTURE_MAX = 1024;     // 送信画像の長辺
 
 /* ---------- カメラ開始・停止 ---------- */
 $('btnStart').onclick = startCamera;
@@ -362,7 +363,8 @@ async function startCamera(){
   try { await $('cam').play(); } catch(e){}
   running = true;
   state = 'watching';
-  lastSample = null; steadyCount = 0; lastScanSample = null; lastScanEmpty = false;
+  lastSample = null; steadyCount = 0; unsteadyTicks = 0; lastScanSample = null; lastScanEmpty = false;
+  getModelCandidates();  /* 初回スキャンを速くするため、モデル一覧を先に取得しておく */
   $('startPane').style.display = 'none';
   $('camActions').style.display = 'flex';
   setLiveStatus('文字にかざして、少し止めてください', false);
@@ -429,15 +431,17 @@ function tick(){
 
   if(state === 'watching'){
     const moved = sampleDiff(cur, lastSample);
-    if(moved < STEADY_T) steadyCount++; else steadyCount = 0;
+    if(moved < STEADY_T){ steadyCount++; unsteadyTicks = 0; }
+    else { steadyCount = 0; unsteadyTicks++; }
 
     const isNewScene = !lastScanSample || sampleDiff(cur, lastScanSample) > CHANGE_T;
     const cooled = Date.now() - lastScanAt > MIN_INTERVAL && Date.now() >= backoffUntil;
+    /* 少しでも静止したら読む。揺れ続きでも約3秒たてば読む（手ブレで反応しない事態を防ぐ） */
+    const ready = steadyCount >= 1 || unsteadyTicks >= 8;
 
-    if(steadyCount >= 2 && cooled && isNewScene){
-      /* 静止していて、前回読んだ場面と変わっていれば自動で読み取る */
+    if(ready && cooled && isNewScene){
       doScan(false);
-    } else if(steadyCount >= 2 && !cooled && isNewScene){
+    } else if(ready && !cooled && isNewScene){
       setLiveStatus(Date.now() < backoffUntil ? 'AIが混みあっています。じどうで再開します…' : 'まもなく読み取ります…', false);
     }
   } else if(state === 'frozen'){
@@ -460,7 +464,7 @@ function captureFrame(){
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   canvas.getContext('2d').drawImage(v, 0, 0, w, h);
-  return {dataUrl: canvas.toDataURL('image/jpeg', 0.82), w, h};
+  return {dataUrl: canvas.toDataURL('image/jpeg', 0.72), w, h};
 }
 
 async function doScan(manual){
@@ -470,7 +474,7 @@ async function doScan(manual){
   state = 'scanning';
   lastScanAt = Date.now();
   lastScanSample = grabSample();
-  steadyCount = 0;
+  steadyCount = 0; unsteadyTicks = 0;
   hideError();
   setLiveStatus('AIが読み取り中…', true);
 
@@ -533,24 +537,33 @@ async function callGemini(base64){
   const errors = [];
   let quotaHit = false, quotaDaily = false, retryDelaySec = 0;
   for(const model of models){
+    const send = gc => fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {inline_data: {mime_type: 'image/jpeg', data: base64}},
+              {text: prompt}
+            ]
+          }],
+          generationConfig: gc
+        })
+      }
+    );
     let res;
     try {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
-        {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                {inline_data: {mime_type: 'image/jpeg', data: base64}},
-                {text: prompt}
-              ]
-            }],
-            generationConfig: {responseMimeType: 'application/json'}
-          })
-        }
-      );
+      /* 応答を速くするため「考える時間」をオフにして送る。
+         指定方法はモデル世代で異なり、未対応なら設定なしで送り直す */
+      let gc = {responseMimeType: 'application/json'};
+      if(/^gemini-3/.test(model)) gc.thinkingConfig = {thinkingLevel: 'low'};
+      else if(/^gemini-2\.5/.test(model)) gc.thinkingConfig = {thinkingBudget: 0};
+      res = await send(gc);
+      if(!res.ok && res.status === 400 && gc.thinkingConfig){
+        res = await send({responseMimeType: 'application/json'});
+      }
     } catch(e){
       errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
       continue;
