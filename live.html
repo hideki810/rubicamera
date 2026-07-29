@@ -238,7 +238,7 @@
 </main>
 
 <footer>
-  ルビカメラ２ v1 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
+  ルビカメラ２ v1.1 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
@@ -309,7 +309,8 @@ const SAMPLE_MS = 550;        // 動きチェックの間隔
 const STEADY_T = 5;           // これ以下の差なら「静止」とみなす
 const CHANGE_T = 13;          // これ以上の差なら「新しい場面」とみなす
 const UNFREEZE_T = 17;        // 固定表示を解除する動きの大きさ
-const MIN_INTERVAL = 6500;    // 読み取りの最短間隔（無料キーの回数制限対策）
+const MIN_INTERVAL = 8000;    // 読み取りの最短間隔（無料キーの回数制限対策）
+let backoffUntil = 0;         // 混雑（429）時はこの時刻まで読み取りを休止
 const CAPTURE_MAX = 1280;     // 送信画像の長辺
 
 /* ---------- カメラ開始・停止 ---------- */
@@ -317,6 +318,10 @@ $('btnStart').onclick = startCamera;
 $('btnStop').onclick = stopCamera;
 $('btnScanNow').onclick = () => {
   if(state === 'scanning') return;
+  if(Date.now() < backoffUntil){
+    setLiveStatus('AIが混みあっています。あと' + Math.ceil((backoffUntil - Date.now()) / 1000) + '秒お待ちください', true);
+    return;
+  }
   if(Date.now() - lastScanAt < 3000){
     setLiveStatus('少し待ってから押してください', false);
     return;
@@ -427,13 +432,13 @@ function tick(){
     if(moved < STEADY_T) steadyCount++; else steadyCount = 0;
 
     const isNewScene = !lastScanSample || sampleDiff(cur, lastScanSample) > CHANGE_T;
-    const cooled = Date.now() - lastScanAt > MIN_INTERVAL;
+    const cooled = Date.now() - lastScanAt > MIN_INTERVAL && Date.now() >= backoffUntil;
 
     if(steadyCount >= 2 && cooled && isNewScene){
       /* 静止していて、前回読んだ場面と変わっていれば自動で読み取る */
       doScan(false);
     } else if(steadyCount >= 2 && !cooled && isNewScene){
-      setLiveStatus('まもなく読み取ります…', false);
+      setLiveStatus(Date.now() < backoffUntil ? 'AIが混みあっています。じどうで再開します…' : 'まもなく読み取ります…', false);
     }
   } else if(state === 'frozen'){
     /* カメラを動かしたら固定表示を解除して次を探す */
@@ -489,6 +494,19 @@ async function doScan(manual){
     if(!running) return;
     console.error(err);
     state = 'watching';
+    if(err.quota){
+      /* 混雑（回数制限）：赤いエラーは出さず、待ってから自動で同じ場面を読み直す */
+      lastScanSample = null;
+      if(err.quota.daily){
+        backoffUntil = Date.now() + 120 * 1000;
+        setLiveStatus('読み取りの上限に達しました', false);
+        showError(err.userMessage);
+      } else {
+        backoffUntil = Date.now() + err.quota.retrySec * 1000;
+        setLiveStatus('AIが混みあっています。' + err.quota.retrySec + '秒後に自動でつづけます', true);
+      }
+      return;
+    }
     setLiveStatus('読み取りに失敗しました', false);
     showError(err.userMessage ||
       '読み取りに失敗しました。電波の良い場所でもう一度お試しください。\n【詳細】' + (err && err.message ? err.message : '不明'));
@@ -513,6 +531,7 @@ async function callGemini(base64){
 
   const models = await getModelCandidates();
   const errors = [];
+  let quotaHit = false, quotaDaily = false, retryDelaySec = 0;
   for(const model of models){
     let res;
     try {
@@ -539,8 +558,9 @@ async function callGemini(base64){
 
     if(!res.ok){
       let detail = 'HTTP ' + res.status;
+      let eb = null;
       try {
-        const eb = await res.json();
+        eb = await res.json();
         if(eb.error?.message) detail = eb.error.message;
       } catch(e){}
       if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
@@ -553,10 +573,15 @@ async function callGemini(base64){
         e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
         throw e;
       }
-      if(/quota|RESOURCE_EXHAUSTED|429/i.test(detail + ' ' + res.status)){
-        const e = new Error('quota');
-        e.userMessage = '読み取り回数が上限に達したようです。少し時間をおいてから（混んでいる場合は翌日に）もう一度お試しください。';
-        throw e;
+      if(res.status === 429 || /quota|RESOURCE_EXHAUSTED/i.test(detail)){
+        /* 回数制限：モデルごとに枠が別なので、次の候補モデルで再挑戦する */
+        quotaHit = true;
+        if(/perday|per day/i.test(detail)) quotaDaily = true;
+        const ds = JSON.stringify(eb?.error?.details || '') + ' ' + detail;
+        const rm = ds.match(/retryDelay[^0-9]*(\d+(?:\.\d+)?)/i) || ds.match(/retry in (\d+(?:\.\d+)?)/i);
+        if(rm) retryDelaySec = Math.max(retryDelaySec, Math.ceil(parseFloat(rm[1])));
+        errors.push(model + ': 混雑（429）');
+        continue;
       }
       errors.push(model + ': ' + detail);
       continue;
@@ -576,6 +601,14 @@ async function callGemini(base64){
       errors.push(model + ': 応答の解析に失敗（' + (e.message || '不明') + '）');
       continue;
     }
+  }
+  if(quotaHit){
+    const e = new Error('quota');
+    e.quota = {daily: quotaDaily, retrySec: Math.min(120, retryDelaySec || 45)};
+    if(quotaDaily){
+      e.userMessage = '今日の無料の読み取り回数を使い切った可能性があります。時間をおいても直らない場合は、明日（日本時間の夕方ごろにリセット）もう一度お試しください。';
+    }
+    throw e;
   }
   const err = new Error('gemini failed');
   err.userMessage = 'AIでの読み取りに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
