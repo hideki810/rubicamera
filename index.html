@@ -219,7 +219,7 @@
 </main>
 
 <footer>
-  ルビカメラ v6.1 · オフラインモードでは写真は端末の外に送信されません<br>
+  ルビカメラ v6.2 · オフラインモードでは写真は端末の外に送信されません<br>
   高精度モードでは写真がGoogleのAIに送信されます
 </footer>
 
@@ -236,6 +236,18 @@ const store = {
 
 /* ---------- モード表示・設定 ---------- */
 function apiKey(){ return (store.get('rubiKey') || '').trim(); }
+/* 貼り付け内容のよくある間違いを自動修正してキーだけ取り出す */
+function normalizeKey(v){
+  let s = (v || '');
+  /* 全角英数字・全角記号を半角へ（日本語キーボードで入力された場合の対策） */
+  s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  /* 空白・改行・見えない文字を除去 */
+  s = s.replace(/[\s 　​-‍﻿]/g, '');
+  /* URLごと貼られた場合などは、キー部分（AIza…）だけを取り出す */
+  const m = s.match(/AIza[0-9A-Za-z_\-]{10,}/);
+  return m ? m[0] : s;
+}
+function keyLooksValid(k){ return /^AIza[0-9A-Za-z_\-]{20,}$/.test(k); }
 function updateMode(){
   const chip = $('modeChip');
   if(apiKey()){
@@ -250,7 +262,7 @@ function updateMode(){
 (function(){
   const m = location.hash.match(/[#&]k=([^&]+)/);
   if(m){
-    store.set('rubiKey', decodeURIComponent(m[1]));
+    store.set('rubiKey', normalizeKey(decodeURIComponent(m[1])));
     try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
   }
 })();
@@ -263,8 +275,12 @@ $('btnSettings').onclick = () => {
   if(open) $('apiKeyInput').value = apiKey();
 };
 $('btnSaveKey').onclick = () => {
-  const v = $('apiKeyInput').value.trim();
+  const v = normalizeKey($('apiKeyInput').value);
   if(!v){ alert('キーを貼り付けてから保存を押してください'); return; }
+  if(!keyLooksValid(v)){
+    alert('キーの形が正しくないようです（先頭「' + v.slice(0, 4) + '」・' + v.length + '文字）。\n正しいキーは半角の AIza で始まる約39文字の英数字です。\naistudio.google.com/apikey でキーをコピーして、そのまま貼り付けてください。');
+    return;
+  }
   store.set('rubiKey', v);
   updateMode();
   $('settings').style.display = 'none';
@@ -280,9 +296,16 @@ async function testConnection(){
   const out = $('testResult');
   out.style.display = 'block';
   out.textContent = 'テスト中…（10秒ほどかかります）';
-  const k = ($('apiKeyInput').value || '').trim() || apiKey();
+  const k = normalizeKey($('apiKeyInput').value) || apiKey();
   if(!k){ out.textContent = 'キーが未設定です。上の欄にキーを貼り付けてから押してください。'; return; }
   const lines = [];
+
+  // ⓪ 保存されているキーの形式チェック
+  if(keyLooksValid(k)){
+    lines.push('⓪ キーの形式：OK（AIza… ' + k.length + '文字）');
+  } else {
+    lines.push('⓪ キーの形式：NG（先頭「' + k.slice(0, 4) + '」・' + k.length + '文字）→ 保存されているキーが正しい形ではありません。「キーを削除」を押してから、キーを入れ直してください。');
+  }
 
   // ① 鍵とネットの確認（軽い問い合わせ）
   try {
@@ -347,7 +370,11 @@ async function testConnection(){
 
   // 自動判定
   const joined = lines.join(' ');
-  if(/①[^②③④⑤]*NG/.test(joined)){
+  if(/⓪[^①]*NG/.test(joined)){
+    lines.push('【判定】保存されているキーが壊れています。「キーを削除」→ 配布リンク（#k=付きURL）をこの画面と同じブラウザで開き直すか、キーをコピーして貼り付け直してください。');
+  } else if(/①[^②③④⑤]*NG/.test(joined) && /(401|Expected OAuth|invalid authentication|API key not valid|API_KEY_INVALID)/i.test(joined)){
+    lines.push('【判定】ネットは正常ですが、このキーがGoogleに受け付けられていません。「キーを削除」してから、正しいキーを入れ直してください。それでも直らない場合は、キーの発行元（aistudio.google.com/apikey）で新しいキーを作り直してください。');
+  } else if(/①[^②③④⑤]*NG/.test(joined)){
     if(/③[^④⑤]*OK/.test(joined)){
       lines.push('【判定】Googleには届いていますが、応答の受け取りが遮断されています。Wi-Fiとモバイル回線を切り替えて、もう一度テストしてください。');
     } else if(/④[^⑤]*OK/.test(joined)){
