@@ -238,7 +238,7 @@
 </main>
 
 <footer>
-  ルビカメラ２ v1.3 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
+  ルビカメラ２ v1.4 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
@@ -315,7 +315,11 @@ let backoffUntil = 0;         // 混雑（429）時はこの時刻まで読み�
 let unsteadyTicks = 0;        // 揺れ続けている回数（長く続いたら揺れていても読む）
 let frozenAt = 0;             // 結果を表示した時刻
 let unfreezeStreak = 0;       // 解除判定が連続した回数（1回の揺れでは消さない）
+let scanSeq = 0;              // 読み取りの通し番号（中断した読み取りの結果は捨てる）
 const CAPTURE_MAX = 960;      // 送信画像の長辺
+const FETCH_TIMEOUT = 12000;  // 1モデルあたりの応答待ち上限
+const SCAN_DEADLINE = 25000;  // 1回の読み取り全体の上限
+const SCAN_WATCHDOG = 40000;  // これを超えたら強制的に中断（保険）
 
 /* ---------- カメラ開始・停止 ---------- */
 $('btnStart').onclick = startCamera;
@@ -429,6 +433,14 @@ function sampleDiff(a, b){
 
 function tick(){
   if(!running) return;
+
+  /* 保険：読み取りが長時間終わらないときは強制的に中断して再開できるようにする */
+  if(state === 'scanning' && Date.now() - lastScanAt > SCAN_WATCHDOG){
+    scanSeq++;
+    state = 'watching';
+    setLiveStatus('時間がかかりすぎたため中断しました。もう一度かざしてください', false);
+  }
+
   const cur = grabSample();
   if(!cur) return;
 
@@ -481,15 +493,23 @@ async function doScan(manual){
   const frame = captureFrame();
   if(!frame) return;
   state = 'scanning';
+  const mySeq = ++scanSeq;
   lastScanAt = Date.now();
   lastScanSample = grabSample();
   steadyCount = 0; unsteadyTicks = 0;
   hideError();
   setLiveStatus('AIが読み取り中…', true);
+  /* 進んでいることが分かるように経過秒数を表示する */
+  const scanT0 = Date.now();
+  const statusTimer = setInterval(() => {
+    if(state === 'scanning' && mySeq === scanSeq){
+      setLiveStatus('AIが読み取り中…（' + Math.round((Date.now() - scanT0) / 1000) + '秒）', true);
+    }
+  }, 1000);
 
   try {
     const result = await callGemini(frame.dataUrl.split(',')[1]);
-    if(!running) return;
+    if(!running || mySeq !== scanSeq) return;
     if(!result.length){
       lastScanEmpty = true;
       state = 'watching';
@@ -509,7 +529,7 @@ async function doScan(manual){
     state = 'frozen';
     setLiveStatus('カメラを動かすと つづきを読めます', false);
   } catch(err){
-    if(!running) return;
+    if(!running || mySeq !== scanSeq) return;
     console.error(err);
     state = 'watching';
     if(err.quota){
@@ -528,7 +548,17 @@ async function doScan(manual){
     setLiveStatus('読み取りに失敗しました', false);
     showError(err.userMessage ||
       '読み取りに失敗しました。電波の良い場所でもう一度お試しください。\n【詳細】' + (err && err.message ? err.message : '不明'));
+  } finally {
+    clearInterval(statusTimer);
   }
+}
+
+/* 時間制限つきfetch：応答が返らない場合に永遠に待たないようにする */
+function fetchWithTimeout(url, opts, ms){
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, Object.assign({}, opts, {signal: ctrl.signal}))
+    .finally(() => clearTimeout(t));
 }
 
 async function callGemini(base64){
@@ -550,8 +580,11 @@ async function callGemini(base64){
   const models = await getModelCandidates();
   const errors = [];
   let quotaHit = false, quotaDaily = false, retryDelaySec = 0;
+  const deadline = Date.now() + SCAN_DEADLINE;
   for(const model of models){
-    const send = gc => fetch(
+    const remain = deadline - Date.now();
+    if(remain < 3000){ errors.push('時間切れ（' + Math.round(SCAN_DEADLINE / 1000) + '秒以内に応答なし）'); break; }
+    const send = gc => fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
       {
         method: 'POST',
@@ -565,7 +598,8 @@ async function callGemini(base64){
           }],
           generationConfig: gc
         })
-      }
+      },
+      Math.min(FETCH_TIMEOUT, deadline - Date.now())
     );
     let res;
     try {
@@ -579,7 +613,9 @@ async function callGemini(base64){
         res = await send({responseMimeType: 'application/json'});
       }
     } catch(e){
-      errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
+      errors.push(model + (e.name === 'AbortError'
+        ? ': 応答待ちを中断（時間切れ）'
+        : ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')'));
       continue;
     }
 
