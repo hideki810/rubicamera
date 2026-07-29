@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ルビカメラ２（かざして読む）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1b2a41;
+    --ink-soft:#4a5a72;
+    --paper:#ffffff;
+    --bg:#eef1f5;
+    --accent:#2b6cb0;
+    --shu:#b5442e;
+    --line:#d8dde5;
+    --radius:16px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:'Noto Sans JP',system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    display:flex;flex-direction:column;
+    max-width:560px;margin:0 auto;
+    min-height:100dvh;
+  }
+  header{padding:14px 16px 10px;display:flex;align-items:center;gap:10px}
+  header .titles{display:flex;align-items:baseline;gap:10px;flex:1}
+  header h1{
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:20px;font-weight:700;letter-spacing:.04em;
+  }
+  header h1 ruby rt{font-size:9px;color:var(--accent);font-weight:500}
+  header p{font-size:11px;color:var(--ink-soft)}
+  .icon-btn{
+    border:1px solid var(--line);background:var(--paper);
+    width:38px;height:38px;border-radius:50%;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);
+    flex:none;text-decoration:none;font-size:15px;font-weight:700;
+    font-family:'Zen Maru Gothic',sans-serif;
+  }
+  .icon-btn svg{width:18px;height:18px}
+
+  main{flex:1;padding:0 12px 12px;display:flex;flex-direction:column;gap:10px}
+
+  /* 設定パネル */
+  .settings{
+    display:none;flex-direction:column;gap:12px;
+    background:var(--paper);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;
+  }
+  .settings h2{font-size:15px;font-weight:700}
+  .settings p{font-size:12px;color:var(--ink-soft);line-height:1.8}
+  .settings a{color:var(--accent)}
+  .settings input{
+    width:100%;border:1px solid var(--line);border-radius:10px;
+    padding:12px;font-size:14px;font-family:inherit;
+  }
+  .settings .btns{display:flex;gap:8px}
+  .settings .btns button{
+    flex:1;border-radius:10px;padding:12px;font-size:14px;font-weight:500;
+    cursor:pointer;font-family:inherit;
+  }
+  #btnSaveKey{border:none;background:var(--accent);color:#fff}
+  #btnDeleteKey{border:1px solid var(--line);background:var(--paper);color:var(--shu)}
+
+  /* カメラ画面 */
+  .cam-wrap{
+    position:relative;
+    width:100%;
+    aspect-ratio:3/4;
+    background:#101820;
+    border-radius:var(--radius);
+    overflow:hidden;
+    flex:none;
+  }
+  .cam-wrap video, .cam-wrap .frozen{
+    position:absolute;inset:0;width:100%;height:100%;
+    object-fit:cover;
+  }
+  .cam-wrap .frozen{display:none;background:#101820}
+  .overlay-layer{
+    position:absolute;inset:0;pointer-events:none;display:none;
+  }
+  .chip{
+    position:absolute;
+    background:rgba(255,255,255,.94);
+    color:var(--ink);
+    border-radius:4px;
+    padding:1px 3px 0;
+    line-height:1.15;
+    white-space:nowrap;
+    box-shadow:0 1px 4px rgba(0,0,0,.25);
+    font-weight:500;
+  }
+  .chip ruby rt{font-size:.45em;color:var(--shu);font-weight:500;letter-spacing:0}
+  .chip.vert{writing-mode:vertical-rl;white-space:normal}
+
+  /* カメラ上の案内チップ */
+  .live-status{
+    position:absolute;top:10px;left:50%;transform:translateX(-50%);
+    background:rgba(16,24,32,.75);color:#fff;
+    font-size:13px;font-weight:500;
+    padding:7px 16px;border-radius:99px;
+    display:flex;align-items:center;gap:8px;
+    max-width:92%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .live-status .dot{
+    width:9px;height:9px;border-radius:50%;background:#6ee7b7;flex:none;
+  }
+  .live-status.busy .dot{background:#fbbf24;animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.3}}
+
+  /* スタート画面 */
+  .start-pane{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    background:linear-gradient(180deg,#16202c,#101820);
+    color:#cbd5e1;text-align:center;padding:24px;
+  }
+  .start-pane p{font-size:13px;line-height:2}
+  .start-pane button{
+    border:none;background:var(--accent);color:#fff;
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:17px;font-weight:700;letter-spacing:.06em;
+    padding:16px 34px;border-radius:99px;cursor:pointer;
+    display:flex;align-items:center;gap:10px;
+    box-shadow:0 4px 14px rgba(43,108,176,.4);
+  }
+  .start-pane button svg{width:22px;height:22px}
+
+  /* カメラ下の操作ボタン */
+  .cam-actions{display:flex;gap:8px}
+  .cam-actions button{
+    flex:1;border:1px solid var(--line);background:var(--paper);
+    color:var(--ink);border-radius:12px;padding:13px 8px;
+    font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;
+  }
+  .cam-actions #btnScanNow{
+    flex:2;border:none;background:var(--ink);color:#fff;
+    font-family:'Zen Maru Gothic',sans-serif;font-weight:700;letter-spacing:.04em;
+  }
+  .cam-actions button:disabled{opacity:.45}
+
+  .error{
+    display:none;background:#fdf3f1;border:1px solid #eccfc8;
+    color:var(--shu);border-radius:var(--radius);
+    padding:14px 16px;font-size:13px;line-height:1.7;
+    white-space:pre-line;
+  }
+
+  /* 結果パネル */
+  .result-wrap{display:none;flex-direction:column;gap:8px}
+  .result-tools{display:flex;gap:8px;align-items:center}
+  .result-tools .label{font-size:12px;color:var(--ink-soft);margin-right:auto}
+  .result-tools button{
+    border:1px solid var(--line);background:var(--paper);
+    border-radius:10px;padding:8px 14px;font-size:13px;
+    color:var(--ink);cursor:pointer;font-family:inherit;font-weight:500;
+  }
+  .result-tools button.active{border-color:var(--accent);color:var(--accent)}
+  .result{
+    background:var(--paper);
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    padding:18px 18px;
+    font-size:19px;
+    line-height:2.5;
+    letter-spacing:.03em;
+    overflow-wrap:anywhere;
+    max-height:32dvh;overflow-y:auto;
+  }
+  .result ruby rt{font-size:.45em;color:var(--shu);letter-spacing:0;font-weight:500}
+  .result.size-l{font-size:25px;line-height:2.6}
+
+  footer{padding:8px 16px 12px;text-align:center;font-size:10px;color:#9aa4b2;line-height:1.7}
+</style>
+</head>
+<body>
+<header>
+  <div class="titles">
+    <h1><ruby>ルビ<rt>るび</rt></ruby>カメラ２</h1>
+    <p>かざすと ふりがな</p>
+  </div>
+  <a class="icon-btn" href="index.html" aria-label="ルビカメラ（写真版）へ" title="写真版へ">①</a>
+  <button class="icon-btn" id="btnSettings" aria-label="設定">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <div class="settings" id="settings">
+    <h2>APIキーの設定</h2>
+    <p>ルビカメラ２はAI読み取り専用です。GoogleのAIキー（Gemini APIキー）が必要です。<br>
+    <a href="index.html">ルビカメラ（写真版）</a>でキーを設定済みなら、そのまま使えます。</p>
+    <input type="password" id="apiKeyInput" placeholder="APIキーを貼り付け" autocomplete="off">
+    <div class="btns">
+      <button id="btnSaveKey">保存する</button>
+      <button id="btnDeleteKey">キーを削除</button>
+    </div>
+    <p>キーはこのスマホの中にだけ保存されます。キーの作り方や接続テストは<a href="index.html">写真版の設定画面</a>にあります。</p>
+  </div>
+
+  <div class="cam-wrap" id="camWrap">
+    <video id="cam" autoplay playsinline muted></video>
+    <img class="frozen" id="frozenImg" alt="">
+    <div class="overlay-layer" id="overlayLayer"></div>
+    <div class="live-status" id="liveStatus" style="display:none"><span class="dot"></span><span id="liveStatusText"></span></div>
+    <div class="start-pane" id="startPane">
+      <p>文字にカメラをかざすと<br>じどうで ふりがなが つきます</p>
+      <button id="btnStart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        カメラをはじめる
+      </button>
+      <p style="font-size:11px;color:#8aa0b8">カメラの使用を「許可」してください</p>
+    </div>
+  </div>
+
+  <div class="cam-actions" id="camActions" style="display:none">
+    <button id="btnScanNow">いま よみとる</button>
+    <button id="btnStop">カメラ停止</button>
+  </div>
+
+  <div class="error" id="error"></div>
+
+  <div class="result-wrap" id="resultWrap">
+    <div class="result-tools">
+      <span class="label">読み取り結果</span>
+      <button id="btnSize">文字 大</button>
+      <button id="btnCopy">コピー</button>
+    </div>
+    <div class="result" id="result"></div>
+  </div>
+</main>
+
+<footer>
+  ルビカメラ２ v1 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
+  読み間違いがあることがあります。大事な文書は元の文字も確認してください
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const mem = {};
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
+};
+
+/* ---------- APIキー（ルビカメラ①と共通の保存場所） ---------- */
+function apiKey(){ return (store.get('rubiKey') || '').trim(); }
+function normalizeKey(v){
+  let s = (v || '');
+  s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  s = s.replace(/[\s 　​-‍﻿]/g, '');
+  const u = s.match(/[#&]k=([^&#?]+)/);
+  if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
+  return s;
+}
+function keyLooksValid(k){ return /^[\x21-\x7E]{20,}$/.test(k); }
+(function(){
+  const m = location.hash.match(/[#&]k=([^&]+)/);
+  if(m){
+    store.set('rubiKey', normalizeKey(decodeURIComponent(m[1])));
+    try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
+  }
+})();
+
+$('btnSettings').onclick = () => {
+  const s = $('settings');
+  const open = s.style.display !== 'flex';
+  s.style.display = open ? 'flex' : 'none';
+  if(open) $('apiKeyInput').value = apiKey();
+};
+$('btnSaveKey').onclick = () => {
+  const v = normalizeKey($('apiKeyInput').value);
+  if(!v){ alert('キーを貼り付けてから保存を押してください'); return; }
+  if(!keyLooksValid(v)){
+    alert('キーの形が正しくないようです（先頭「' + v.slice(0, 4) + '」・' + v.length + '文字）。\n日本語や空白が混ざっていないか確認してください。');
+    return;
+  }
+  store.set('rubiKey', v);
+  $('settings').style.display = 'none';
+  hideError();
+};
+$('btnDeleteKey').onclick = () => {
+  store.del('rubiKey');
+  $('apiKeyInput').value = '';
+};
+
+/* ---------- 状態 ---------- */
+let stream = null;
+let running = false;
+let state = 'idle';           // idle | watching | scanning | frozen
+let loopTimer = null;
+let lastSample = null;        // 直前の映像サンプル（動き検出用）
+let steadyCount = 0;          // 静止していた連続回数
+let lastScanSample = null;    // 最後に読み取った場面のサンプル
+let lastScanAt = 0;           // 最後に読み取った時刻
+let lastScanEmpty = false;    // 最後の読み取りが「文字なし」だったか
+let lines = [];               // 最新の読み取り結果
+let wakeLock = null;
+
+const SAMPLE_MS = 550;        // 動きチェックの間隔
+const STEADY_T = 5;           // これ以下の差なら「静止」とみなす
+const CHANGE_T = 13;          // これ以上の差なら「新しい場面」とみなす
+const UNFREEZE_T = 17;        // 固定表示を解除する動きの大きさ
+const MIN_INTERVAL = 6500;    // 読み取りの最短間隔（無料キーの回数制限対策）
+const CAPTURE_MAX = 1280;     // 送信画像の長辺
+
+/* ---------- カメラ開始・停止 ---------- */
+$('btnStart').onclick = startCamera;
+$('btnStop').onclick = stopCamera;
+$('btnScanNow').onclick = () => {
+  if(state === 'scanning') return;
+  if(Date.now() - lastScanAt < 3000){
+    setLiveStatus('少し待ってから押してください', false);
+    return;
+  }
+  unfreeze();
+  doScan(true);
+};
+$('camWrap').addEventListener('click', () => {
+  if(state === 'frozen') unfreeze();
+});
+
+async function startCamera(){
+  hideError();
+  if(!apiKey()){
+    $('settings').style.display = 'flex';
+    showError('ルビカメラ２を使うにはAPIキーの設定が必要です。\nルビカメラ（写真版）でキー設定済みのスマホなら、そのまま「カメラをはじめる」を押すだけで使えます。');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: {ideal: 'environment'},
+        width: {ideal: 1920},
+        height: {ideal: 1440}
+      },
+      audio: false
+    });
+  } catch(e){
+    if(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')){
+      showError('カメラの使用が許可されませんでした。\nブラウザの設定でこのサイトのカメラを「許可」にしてから、もう一度お試しください。\n（アドレスバーの左のマークからも設定できます）');
+    } else {
+      showError('カメラを起動できませんでした。\n【詳細】' + (e && e.name ? e.name + ' ' + (e.message || '') : '不明')
+        + '\nこのスマホで使えない場合は、写真版のルビカメラをお使いください。');
+    }
+    return;
+  }
+  $('cam').srcObject = stream;
+  try { await $('cam').play(); } catch(e){}
+  running = true;
+  state = 'watching';
+  lastSample = null; steadyCount = 0; lastScanSample = null; lastScanEmpty = false;
+  $('startPane').style.display = 'none';
+  $('camActions').style.display = 'flex';
+  setLiveStatus('文字にかざして、少し止めてください', false);
+  requestWakeLock();
+  loopTimer = setInterval(tick, SAMPLE_MS);
+}
+
+function stopCamera(){
+  running = false;
+  state = 'idle';
+  if(loopTimer){ clearInterval(loopTimer); loopTimer = null; }
+  if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  $('cam').srcObject = null;
+  unfreeze();
+  $('startPane').style.display = 'flex';
+  $('camActions').style.display = 'none';
+  $('liveStatus').style.display = 'none';
+  releaseWakeLock();
+}
+
+/* 画面を閉じたり他のアプリに切り替えたらカメラを止める（電池と映像の保護） */
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden && running) stopCamera();
+  if(!document.hidden) requestWakeLock();
+});
+window.addEventListener('pagehide', () => { if(running) stopCamera(); });
+
+async function requestWakeLock(){
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
+}
+function releaseWakeLock(){
+  try { if(wakeLock){ wakeLock.release(); wakeLock = null; } } catch(e){}
+}
+
+/* ---------- 動き検出ループ ---------- */
+const sampleCanvas = document.createElement('canvas');
+sampleCanvas.width = 32; sampleCanvas.height = 24;
+
+function grabSample(){
+  const v = $('cam');
+  if(!v.videoWidth) return null;
+  const ctx = sampleCanvas.getContext('2d', {willReadFrequently: true});
+  ctx.drawImage(v, 0, 0, 32, 24);
+  const d = ctx.getImageData(0, 0, 32, 24).data;
+  const out = new Uint8Array(32 * 24);
+  for(let i = 0; i < out.length; i++){
+    const j = i * 4;
+    out[i] = (d[j]*0.299 + d[j+1]*0.587 + d[j+2]*0.114) | 0;
+  }
+  return out;
+}
+
+function sampleDiff(a, b){
+  if(!a || !b) return 255;
+  let sum = 0;
+  for(let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+  return sum / a.length;
+}
+
+function tick(){
+  if(!running) return;
+  const cur = grabSample();
+  if(!cur) return;
+
+  if(state === 'watching'){
+    const moved = sampleDiff(cur, lastSample);
+    if(moved < STEADY_T) steadyCount++; else steadyCount = 0;
+
+    const isNewScene = !lastScanSample || sampleDiff(cur, lastScanSample) > CHANGE_T;
+    const cooled = Date.now() - lastScanAt > MIN_INTERVAL;
+
+    if(steadyCount >= 2 && cooled && isNewScene){
+      /* 静止していて、前回読んだ場面と変わっていれば自動で読み取る */
+      doScan(false);
+    } else if(steadyCount >= 2 && !cooled && isNewScene){
+      setLiveStatus('まもなく読み取ります…', false);
+    }
+  } else if(state === 'frozen'){
+    /* カメラを動かしたら固定表示を解除して次を探す */
+    if(sampleDiff(cur, lastScanSample) > UNFREEZE_T){
+      unfreeze();
+      setLiveStatus('文字にかざして、少し止めてください', false);
+    }
+  }
+  lastSample = cur;
+}
+
+/* ---------- 読み取り ---------- */
+function captureFrame(){
+  const v = $('cam');
+  if(!v.videoWidth) return null;
+  const scale = Math.min(1, CAPTURE_MAX / Math.max(v.videoWidth, v.videoHeight));
+  const w = Math.round(v.videoWidth * scale);
+  const h = Math.round(v.videoHeight * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(v, 0, 0, w, h);
+  return {dataUrl: canvas.toDataURL('image/jpeg', 0.82), w, h};
+}
+
+async function doScan(manual){
+  if(state === 'scanning' || !running) return;
+  const frame = captureFrame();
+  if(!frame) return;
+  state = 'scanning';
+  lastScanAt = Date.now();
+  lastScanSample = grabSample();
+  steadyCount = 0;
+  hideError();
+  setLiveStatus('AIが読み取り中…', true);
+
+  try {
+    const result = await callGemini(frame.dataUrl.split(',')[1]);
+    if(!running) return;
+    if(!result.length){
+      lastScanEmpty = true;
+      state = 'watching';
+      setLiveStatus('文字が見つかりません。近づけてみてください', false);
+      return;
+    }
+    lastScanEmpty = false;
+    lines = result;
+    showFrozen(frame);
+    renderOverlay(frame.w, frame.h);
+    renderResult();
+    state = 'frozen';
+    setLiveStatus('カメラを動かすと つづきを読めます', false);
+  } catch(err){
+    if(!running) return;
+    console.error(err);
+    state = 'watching';
+    setLiveStatus('読み取りに失敗しました', false);
+    showError(err.userMessage ||
+      '読み取りに失敗しました。電波の良い場所でもう一度お試しください。\n【詳細】' + (err && err.message ? err.message : '不明'));
+  }
+}
+
+async function callGemini(base64){
+  const prompt = `この画像に写っている日本語の文章を読み取ってください。
+
+必ず次のJSON形式のみで答えてください。前置きやマークダウンの\`\`\`は一切不要です。
+
+{"lines":[{"box":[上,左,下,右],"segs":[{"t":"漢字部分","r":"よみがな"},{"t":"ひらがな・カタカナ・記号など","r":null}]}]}
+
+ルール:
+- 文章を1行（または1つのまとまり）ごとに "lines" の1要素にする
+- "box" はその行が画像のどこにあるかを、画像の縦横をそれぞれ1000としたときの [上端,左端,下端,右端] の整数で示す
+- 各行の文字は先頭から順に区切り、漢字を含む部分には "r" にひらがなの読みを入れる
+- 送り仮名は分けて、漢字部分だけに読みを付ける（例：「読み」→ {"t":"読","r":"よ"},{"t":"み","r":null}）
+- 漢字を含まない部分（ひらがな、カタカナ、数字、記号）は "r": null
+- 読みは文脈に合わせた正しい読み方にする
+- 画像に日本語の文章がない場合は {"lines":[]} と答える`;
+
+  const models = await getModelCandidates();
+  const errors = [];
+  for(const model of models){
+    let res;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+        {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {inline_data: {mime_type: 'image/jpeg', data: base64}},
+                {text: prompt}
+              ]
+            }],
+            generationConfig: {responseMimeType: 'application/json'}
+          })
+        }
+      );
+    } catch(e){
+      errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
+      continue;
+    }
+
+    if(!res.ok){
+      let detail = 'HTTP ' + res.status;
+      try {
+        const eb = await res.json();
+        if(eb.error?.message) detail = eb.error.message;
+      } catch(e){}
+      if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
+        const e = new Error('bad key');
+        e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
+        throw e;
+      }
+      if(/Expected OAuth|UNAUTHENTICATED|invalid authentication/i.test(detail)){
+        const e = new Error('key not recognized');
+        e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
+        throw e;
+      }
+      if(/quota|RESOURCE_EXHAUSTED|429/i.test(detail + ' ' + res.status)){
+        const e = new Error('quota');
+        e.userMessage = '読み取り回数が上限に達したようです。少し時間をおいてから（混んでいる場合は翌日に）もう一度お試しください。';
+        throw e;
+      }
+      errors.push(model + ': ' + detail);
+      continue;
+    }
+
+    try {
+      const data = await res.json();
+      const cand = data.candidates?.[0];
+      const text = (cand?.content?.parts || []).map(p => p.text || '').join('');
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if(start < 0 || end <= start) throw new Error('no json in response');
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      if(!Array.isArray(parsed.lines)) throw new Error('no lines array');
+      return parsed.lines.filter(l => l && Array.isArray(l.segs) && l.segs.length);
+    } catch(e){
+      errors.push(model + ': 応答の解析に失敗（' + (e.message || '不明') + '）');
+      continue;
+    }
+  }
+  const err = new Error('gemini failed');
+  err.userMessage = 'AIでの読み取りに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
+    + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  throw err;
+}
+
+/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（ルビカメラ①と同じ方式） */
+let modelCache = null;
+async function getModelCandidates(){
+  if(modelCache) return modelCache;
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
+    );
+    if(!res.ok) return fallback;
+    const data = await res.json();
+    const names = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => (m.name || '').replace('models/', ''))
+      .filter(n => /^gemini-/.test(n) && /flash/.test(n))
+      .filter(n => !/(preview|exp|thinking|image|tts|audio|live|8b)/.test(n));
+    names.sort((a, b) => {
+      const va = parseFloat((a.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
+      const vb = parseFloat((b.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
+      if(vb !== va) return vb - va;
+      return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
+    });
+    modelCache = names.length ? names.slice(0, 3) : fallback;
+    return modelCache;
+  } catch(e){
+    return fallback;
+  }
+}
+
+/* ---------- 表示 ---------- */
+function setLiveStatus(text, busy){
+  const el = $('liveStatus');
+  el.style.display = 'flex';
+  el.classList.toggle('busy', !!busy);
+  $('liveStatusText').textContent = text;
+}
+
+function showFrozen(frame){
+  $('frozenImg').src = frame.dataUrl;
+  $('frozenImg').style.display = 'block';
+}
+
+function unfreeze(){
+  state = running ? 'watching' : 'idle';
+  $('frozenImg').style.display = 'none';
+  $('overlayLayer').style.display = 'none';
+  $('overlayLayer').innerHTML = '';
+}
+
+/* 撮影画像（object-fit:cover表示）上の座標に、行ごとのルビ付きチップを重ねる */
+function renderOverlay(imgW, imgH){
+  const layer = $('overlayLayer');
+  layer.innerHTML = '';
+  const wrap = $('camWrap');
+  const dispW = wrap.clientWidth, dispH = wrap.clientHeight;
+  const scale = Math.max(dispW / imgW, dispH / imgH);
+  const offX = (dispW - imgW * scale) / 2;
+  const offY = (dispH - imgH * scale) / 2;
+
+  for(const line of lines){
+    const b = Array.isArray(line.box) && line.box.length === 4 ? line.box : null;
+    if(!b) continue;
+    const top = b[0] / 1000 * imgH * scale + offY;
+    const left = b[1] / 1000 * imgW * scale + offX;
+    const boxH = (b[2] - b[0]) / 1000 * imgH * scale;
+    const boxW = (b[3] - b[1]) / 1000 * imgW * scale;
+    if(boxH <= 0 || boxW <= 0) continue;
+
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    const vertical = boxH > boxW * 1.8;
+    if(vertical) chip.classList.add('vert');
+    const base = vertical ? boxW : boxH;
+    /* ルビの分を含めて元の文字の高さに近づける */
+    const fs = Math.max(10, Math.min(34, base * 0.62));
+    chip.style.fontSize = fs + 'px';
+    chip.style.left = Math.max(0, Math.min(left, dispW - 20)) + 'px';
+    chip.style.top = Math.max(0, Math.min(top, dispH - 20)) + 'px';
+    chip.style.maxWidth = (dispW - 8) + 'px';
+
+    appendSegs(chip, line.segs);
+    layer.appendChild(chip);
+  }
+  layer.style.display = 'block';
+}
+
+function appendSegs(el, segs){
+  for(const s of segs){
+    if(!s || !s.t) continue;
+    if(s.r){
+      const ruby = document.createElement('ruby');
+      ruby.appendChild(document.createTextNode(s.t));
+      const rt = document.createElement('rt');
+      rt.textContent = s.r;
+      ruby.appendChild(rt);
+      el.appendChild(ruby);
+    } else {
+      el.appendChild(document.createTextNode(s.t));
+    }
+  }
+}
+
+function renderResult(){
+  const el = $('result');
+  el.innerHTML = '';
+  lines.forEach((line, i) => {
+    if(i > 0) el.appendChild(document.createElement('br'));
+    appendSegs(el, line.segs);
+  });
+  $('resultWrap').style.display = 'flex';
+}
+
+$('btnSize').onclick = () => {
+  const large = $('result').classList.toggle('size-l');
+  $('btnSize').textContent = large ? '文字 小' : '文字 大';
+  $('btnSize').classList.toggle('active', large);
+};
+
+$('btnCopy').onclick = async () => {
+  const text = lines
+    .map(line => line.segs.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join(''))
+    .join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    $('btnCopy').textContent = 'コピーしました';
+    setTimeout(() => $('btnCopy').textContent = 'コピー', 1500);
+  } catch(e){
+    showError('コピーできませんでした。文字を長押しして選択してください。');
+  }
+};
+
+function showError(msg){
+  $('error').textContent = msg;
+  $('error').style.display = 'block';
+}
+function hideError(){
+  $('error').style.display = 'none';
+}
+</script>
+</body>
+</html>
