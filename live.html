@@ -238,7 +238,7 @@
 </main>
 
 <footer>
-  ルビカメラ２ v1.2 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
+  ルビカメラ２ v1.3 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
@@ -309,10 +309,13 @@ const SAMPLE_MS = 400;        // 動きチェックの間隔
 const STEADY_T = 12;          // これ以下の差なら「静止」とみなす（手ブレ込みで緩め）
 const CHANGE_T = 10;          // これ以上の差なら「新しい場面」とみなす
 const UNFREEZE_T = 14;        // 固定表示を解除する動きの大きさ
-const MIN_INTERVAL = 5000;    // 読み取りの最短間隔（無料キーの回数制限対策）
+const MIN_INTERVAL = 4000;    // 読み取りの最短間隔（無料キーの回数制限対策）
+const FREEZE_MIN = 1500;      // 結果表示から最低これだけの間は消さない
 let backoffUntil = 0;         // 混雑（429）時はこの時刻まで読み取りを休止
 let unsteadyTicks = 0;        // 揺れ続けている回数（長く続いたら揺れていても読む）
-const CAPTURE_MAX = 1024;     // 送信画像の長辺
+let frozenAt = 0;             // 結果を表示した時刻
+let unfreezeStreak = 0;       // 解除判定が連続した回数（1回の揺れでは消さない）
+const CAPTURE_MAX = 960;      // 送信画像の長辺
 
 /* ---------- カメラ開始・停止 ---------- */
 $('btnStart').onclick = startCamera;
@@ -445,10 +448,16 @@ function tick(){
       setLiveStatus(Date.now() < backoffUntil ? 'AIが混みあっています。じどうで再開します…' : 'まもなく読み取ります…', false);
     }
   } else if(state === 'frozen'){
-    /* カメラを動かしたら固定表示を解除して次を探す */
-    if(sampleDiff(cur, lastScanSample) > UNFREEZE_T){
-      unfreeze();
-      setLiveStatus('文字にかざして、少し止めてください', false);
+    /* カメラを動かしたら固定表示を解除して次を探す。
+       表示直後は消さず、2回連続で動きを検出したときだけ解除（誤消え防止） */
+    if(Date.now() - frozenAt > FREEZE_MIN && sampleDiff(cur, lastScanSample) > UNFREEZE_T){
+      unfreezeStreak++;
+      if(unfreezeStreak >= 2){
+        unfreeze();
+        setLiveStatus('文字にかざして、少し止めてください', false);
+      }
+    } else {
+      unfreezeStreak = 0;
     }
   }
   lastSample = cur;
@@ -464,7 +473,7 @@ function captureFrame(){
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   canvas.getContext('2d').drawImage(v, 0, 0, w, h);
-  return {dataUrl: canvas.toDataURL('image/jpeg', 0.72), w, h};
+  return {dataUrl: canvas.toDataURL('image/jpeg', 0.7), w, h};
 }
 
 async function doScan(manual){
@@ -492,6 +501,11 @@ async function doScan(manual){
     showFrozen(frame);
     renderOverlay(frame.w, frame.h);
     renderResult();
+    /* 解除判定の基準は「表示した瞬間」の画面にする
+       （応答待ちの間に手がずれても、表示直後に消えないように） */
+    lastScanSample = grabSample() || lastScanSample;
+    frozenAt = Date.now();
+    unfreezeStreak = 0;
     state = 'frozen';
     setLiveStatus('カメラを動かすと つづきを読めます', false);
   } catch(err){
@@ -645,11 +659,12 @@ async function getModelCandidates(){
       .map(m => (m.name || '').replace('models/', ''))
       .filter(n => /^gemini-/.test(n) && /flash/.test(n))
       .filter(n => !/(preview|exp|thinking|image|tts|audio|live|8b)/.test(n));
+    /* ルビカメラ２は速さ優先：同じ世代なら軽量版（lite）を先に使う */
     names.sort((a, b) => {
       const va = parseFloat((a.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
       const vb = parseFloat((b.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
       if(vb !== va) return vb - va;
-      return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
+      return (a.includes('lite') ? 0 : 1) - (b.includes('lite') ? 0 : 1);
     });
     modelCache = names.length ? names.slice(0, 3) : fallback;
     return modelCache;
