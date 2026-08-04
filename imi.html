@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ルビカメラ３（意味しらべ）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1b2a41;
+    --ink-soft:#4a5a72;
+    --paper:#ffffff;
+    --bg:#eef1f5;
+    --accent:#2b6cb0;
+    --green:#2f7a5b;
+    --shu:#b5442e;
+    --line:#d8dde5;
+    --radius:16px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:'Noto Sans JP',system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    display:flex;flex-direction:column;
+    max-width:560px;margin:0 auto;
+    min-height:100dvh;
+  }
+  header{padding:18px 20px 12px;display:flex;align-items:center;gap:10px}
+  header .titles{display:flex;align-items:baseline;gap:10px;flex:1;flex-wrap:wrap}
+  header h1{
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:22px;font-weight:700;letter-spacing:.04em;
+  }
+  header h1 ruby rt{font-size:9px;color:var(--accent);font-weight:500}
+  header p{font-size:11px;color:var(--ink-soft)}
+  #btnSettings{
+    border:1px solid var(--line);background:var(--paper);
+    width:38px;height:38px;border-radius:50%;cursor:pointer;flex:none;
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);
+  }
+  #btnSettings svg{width:18px;height:18px}
+  .mode-chip{
+    align-self:flex-start;
+    font-size:11px;font-weight:500;
+    padding:4px 12px;border-radius:99px;
+    background:var(--paper);border:1px solid var(--line);color:var(--ink-soft);
+  }
+  .mode-chip.ai{border-color:var(--accent);color:var(--accent)}
+  main{flex:1;padding:0 16px 16px;display:flex;flex-direction:column;gap:14px}
+
+  .capture{
+    border:none;width:100%;
+    background:var(--ink);color:#fff;
+    border-radius:var(--radius);
+    padding:22px 20px;
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:18px;font-weight:700;letter-spacing:.06em;
+    display:flex;align-items:center;justify-content:center;gap:12px;
+    cursor:pointer;
+    box-shadow:0 4px 14px rgba(27,42,65,.25);
+    transition:transform .12s ease;
+  }
+  .capture:active{transform:scale(.97)}
+  .capture svg{width:26px;height:26px;flex:none}
+  .sub-actions{display:flex;gap:10px}
+  .sub-actions button{
+    flex:1;border:1px solid var(--line);background:var(--paper);
+    color:var(--ink-soft);border-radius:12px;padding:12px;
+    font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;
+  }
+  .navlink{
+    display:block;text-align:center;border:1px solid var(--line);background:var(--paper);
+    color:var(--accent);border-radius:12px;padding:12px;font-size:13px;font-weight:500;text-decoration:none;
+  }
+
+  /* 設定パネル */
+  .settings{
+    display:none;flex-direction:column;gap:12px;
+    background:var(--paper);border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;
+  }
+  .settings h2{font-size:15px;font-weight:700}
+  .settings p{font-size:12px;color:var(--ink-soft);line-height:1.8}
+  .settings ol{font-size:12px;color:var(--ink-soft);line-height:1.9;padding-left:20px}
+  .settings a{color:var(--accent)}
+  .settings input{
+    width:100%;border:1px solid var(--line);border-radius:10px;
+    padding:12px;font-size:14px;font-family:inherit;
+  }
+  .settings .btns{display:flex;gap:8px}
+  .settings .btns button{
+    flex:1;border-radius:10px;padding:12px;font-size:14px;font-weight:500;
+    cursor:pointer;font-family:inherit;
+  }
+  #btnSaveKey{border:none;background:var(--accent);color:#fff}
+  #btnDeleteKey{border:1px solid var(--line);background:var(--paper);color:var(--shu)}
+
+  .preview{
+    display:none;background:var(--paper);border-radius:var(--radius);
+    overflow:hidden;border:1px solid var(--line);
+  }
+  .preview img{width:100%;display:block;max-height:26dvh;object-fit:contain;background:#f4f4f4}
+
+  .status{
+    display:none;flex-direction:column;gap:10px;
+    background:var(--paper);border-radius:var(--radius);
+    padding:16px 18px;border:1px solid var(--line);
+  }
+  .status .row{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--ink-soft)}
+  .spinner{
+    width:20px;height:20px;flex:none;
+    border:3px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin 1s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.spinner{animation-duration:2.5s}}
+  .bar{height:6px;border-radius:3px;background:var(--bg);overflow:hidden}
+  .bar > div{height:100%;width:0%;background:var(--accent);transition:width .2s}
+
+  .error{
+    display:none;background:#fdf3f1;border:1px solid #eccfc8;
+    color:var(--shu);border-radius:var(--radius);
+    padding:14px 16px;font-size:13px;line-height:1.6;
+    white-space:pre-line;
+  }
+  .notice{
+    display:none;background:#f2f7fb;border:1px solid #cfe0ee;
+    color:var(--accent);border-radius:var(--radius);
+    padding:14px 16px;font-size:13px;line-height:1.7;
+  }
+
+  .result-wrap{display:none;flex-direction:column;gap:10px}
+  .result-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .result-tools .label{font-size:12px;color:var(--ink-soft);margin-right:auto}
+  .result-tools button{
+    border:1px solid var(--line);background:var(--paper);
+    border-radius:10px;padding:8px 14px;font-size:14px;
+    color:var(--ink);cursor:pointer;font-family:inherit;font-weight:500;
+  }
+  .result-tools button.active{border-color:var(--accent);color:var(--accent)}
+  .result{
+    background:var(--paper);
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    padding:26px 22px;
+    font-size:20px;
+    line-height:2.6;
+    letter-spacing:.03em;
+    overflow-wrap:anywhere;
+    background-image:repeating-linear-gradient(
+      to bottom, transparent 0, transparent 51px, #f0f2f6 51px, #f0f2f6 52px);
+  }
+  .result ruby rt{font-size:.45em;color:var(--shu);letter-spacing:0;font-weight:500}
+  .result.size-l{font-size:26px;line-height:2.7}
+  .result .hit{background:#fff3c4;border-radius:3px}
+  .copy-note{font-size:11px;color:var(--ink-soft);text-align:center;line-height:1.6}
+
+  /* 選択した言葉を調べるボタン */
+  #lookupBar{
+    display:none;position:fixed;left:0;right:0;bottom:0;z-index:50;
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(255,255,255,.96);border-top:1px solid var(--line);
+    box-shadow:0 -4px 14px rgba(27,42,65,.10);
+  }
+  #lookupBar .inner{max-width:560px;margin:0 auto;display:flex;gap:10px;align-items:center}
+  #lookupBar .sel{
+    flex:1;font-size:14px;font-weight:700;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis;
+  }
+  #lookupBar button{
+    border:none;background:var(--green);color:#fff;border-radius:10px;
+    padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;flex:none;
+  }
+  #lookupBar button.ghost{background:var(--paper);color:var(--ink-soft);border:1px solid var(--line);font-weight:500;padding:12px}
+
+  /* ことばの意味 */
+  .words-wrap{display:none;flex-direction:column;gap:10px}
+  .words-head{display:flex;align-items:center;gap:10px}
+  .words-head .label{font-size:12px;color:var(--ink-soft);margin-right:auto}
+  .words-head .mini-spin{width:14px;height:14px;border-width:2px}
+  .word-card{
+    background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--green);
+    border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;
+  }
+  .word-card.pending{border-left-color:var(--accent);opacity:.75}
+  .word-card .w{
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:19px;font-weight:700;line-height:2.2;
+  }
+  .word-card .w ruby rt{font-size:.42em;color:var(--shu);font-weight:500}
+  .word-card .m{font-size:16px;line-height:2.5;color:var(--ink);overflow-wrap:anywhere}
+  .word-card .m ruby rt{font-size:.45em;color:var(--shu);font-weight:500}
+  .word-card .find{
+    align-self:flex-start;border:1px solid var(--line);background:var(--bg);
+    color:var(--ink-soft);border-radius:8px;padding:6px 12px;font-size:12px;
+    cursor:pointer;font-family:inherit;
+  }
+  .words-wrap.size-l .word-card .w{font-size:24px}
+  .words-wrap.size-l .word-card .m{font-size:20px;line-height:2.6}
+
+  footer{padding:10px 16px 90px;text-align:center;font-size:10px;color:#9aa4b2;line-height:1.7}
+</style>
+</head>
+<body>
+<header>
+  <div class="titles">
+    <h1><ruby>ルビ<rt>るび</rt></ruby>カメラ３</h1>
+    <p><ruby>意味<rt>いみ</rt></ruby>しらべ</p>
+  </div>
+  <button id="btnSettings" aria-label="設定">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <span class="mode-chip" id="modeChip">キーの設定が必要です</span>
+
+  <div class="settings" id="settings">
+    <h2>APIキーの設定</h2>
+    <p>この「意味しらべ」はGoogleの無料AIキー（Gemini APIキー）が必要です。ルビカメラ①②とキーは共通なので、すでに設定済みならそのまま使えます。</p>
+    <ol>
+      <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> を開く</li>
+      <li>Googleアカウントでログイン</li>
+      <li>「APIキーを作成」を押して、出てきたキーをコピー</li>
+      <li>下の欄に貼り付けて保存</li>
+    </ol>
+    <input type="password" id="apiKeyInput" placeholder="APIキーを貼り付け" autocomplete="off">
+    <div class="btns">
+      <button id="btnSaveKey">保存する</button>
+      <button id="btnDeleteKey">キーを削除</button>
+    </div>
+    <p>キーはこのスマホの中にだけ保存されます。</p>
+  </div>
+
+  <button class="capture" id="btnCapture">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    カメラで撮る
+  </button>
+  <div class="sub-actions">
+    <button id="btnGallery">写真を選ぶ</button>
+    <button id="btnReset">やり直す</button>
+  </div>
+  <a class="navlink" href="index.html">ルビカメラ１（ふりがなだけ）へ →</a>
+
+  <input type="file" id="fileCamera" accept="image/*" capture="environment" hidden>
+  <input type="file" id="fileGallery" accept="image/*" hidden>
+
+  <div class="preview" id="preview"><img id="previewImg" alt="撮影した写真"></div>
+
+  <div class="status" id="status">
+    <div class="row"><div class="spinner"></div><span id="statusText">準備中…</span></div>
+    <div class="bar"><div id="progressBar"></div></div>
+  </div>
+
+  <div class="error" id="error"></div>
+  <div class="notice" id="notice"></div>
+
+  <div class="result-wrap" id="resultWrap">
+    <div class="result-tools">
+      <span class="label">読み取り結果</span>
+      <button id="btnSize">文字 大</button>
+      <button id="btnCopy">コピー</button>
+    </div>
+    <div class="result" id="result"></div>
+    <div class="copy-note">分からない言葉を指でなぞって選ぶと、その言葉の意味を調べられます<br>読み間違いがあることがあります。大事な文書は元の文字も確認してください</div>
+  </div>
+
+  <div class="words-wrap" id="wordsWrap">
+    <div class="words-head">
+      <span class="label">ことばの<ruby>意味<rt>いみ</rt></ruby></span>
+      <div class="spinner mini-spin" id="wordsSpin" style="display:none"></div>
+    </div>
+    <div id="words"></div>
+  </div>
+</main>
+
+<div id="lookupBar">
+  <div class="inner">
+    <span class="sel" id="lookupSel"></span>
+    <button id="btnLookup">意味を調べる</button>
+    <button id="btnLookupClose" class="ghost">×</button>
+  </div>
+</div>
+
+<footer>
+  ルビカメラ３（意味しらべ）v1.0<br>
+  写真と文章はGoogleのAIに送信されます
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let segments = [];          /* 本文（ルビ用に区切ったもの） */
+let wordList = [];          /* 表示中のことばカード */
+let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
+
+const mem = {};
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
+};
+
+/* ---------- キーとモード（ルビカメラ①②と共通） ---------- */
+function apiKey(){ return (store.get('rubiKey') || '').trim(); }
+function normalizeKey(v){
+  let s = (v || '');
+  s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  s = s.replace(/[\s　​-‍﻿]/g, '');
+  const u = s.match(/[#&]k=([^&#?]+)/);
+  if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
+  return s;
+}
+function keyLooksValid(k){ return /^[\x21-\x7E]{20,}$/.test(k); }
+function updateMode(){
+  const chip = $('modeChip');
+  if(apiKey()){
+    chip.textContent = 'AIで読み取り・意味しらべ';
+    chip.classList.add('ai');
+  } else {
+    chip.textContent = 'キーの設定が必要です（右上の歯車）';
+    chip.classList.remove('ai');
+  }
+}
+(function(){
+  const m = location.hash.match(/[#&]k=([^&]+)/);
+  if(m){
+    store.set('rubiKey', normalizeKey(decodeURIComponent(m[1])));
+    try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
+  }
+})();
+updateMode();
+
+$('btnSettings').onclick = () => {
+  const s = $('settings');
+  const open = s.style.display !== 'flex';
+  s.style.display = open ? 'flex' : 'none';
+  if(open) $('apiKeyInput').value = apiKey();
+};
+$('btnSaveKey').onclick = () => {
+  const v = normalizeKey($('apiKeyInput').value);
+  if(!v){ alert('キーを貼り付けてから保存を押してください'); return; }
+  if(!keyLooksValid(v)){
+    alert('キーの形が正しくないようです（先頭「' + v.slice(0, 4) + '」・' + v.length + '文字）。\n日本語や空白が混ざっていないか確認してください。');
+    return;
+  }
+  store.set('rubiKey', v);
+  updateMode();
+  $('settings').style.display = 'none';
+};
+$('btnDeleteKey').onclick = () => {
+  store.del('rubiKey');
+  $('apiKeyInput').value = '';
+  updateMode();
+};
+
+/* ---------- 基本操作 ---------- */
+$('btnCapture').onclick = () => $('fileCamera').click();
+$('btnGallery').onclick = () => $('fileGallery').click();
+$('btnReset').onclick = resetAll;
+$('fileCamera').onchange = e => handleFile(e.target.files[0]);
+$('fileGallery').onchange = e => handleFile(e.target.files[0]);
+
+$('btnSize').onclick = () => {
+  const large = $('result').classList.toggle('size-l');
+  $('wordsWrap').classList.toggle('size-l', large);
+  $('btnSize').textContent = large ? '文字 小' : '文字 大';
+  $('btnSize').classList.toggle('active', large);
+};
+
+$('btnCopy').onclick = async () => {
+  const lines = [];
+  lines.push(segments.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join(''));
+  if(wordList.length){
+    lines.push('', '― ことばの意味 ―');
+    for(const w of wordList){
+      if(!w.m) continue;
+      lines.push(`${w.w}（${w.r || ''}）：` + w.m.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join(''));
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    $('btnCopy').textContent = 'コピーしました';
+    setTimeout(() => $('btnCopy').textContent = 'コピー', 1500);
+  } catch(e){
+    showError('コピーできませんでした。文字を長押しして選択してください。');
+  }
+};
+
+function resetAll(){
+  segments = [];
+  wordList = [];
+  lookupSeq++;
+  $('preview').style.display = 'none';
+  $('status').style.display = 'none';
+  $('error').style.display = 'none';
+  $('notice').style.display = 'none';
+  $('resultWrap').style.display = 'none';
+  $('wordsWrap').style.display = 'none';
+  $('words').innerHTML = '';
+  $('wordsSpin').style.display = 'none';
+  hideLookupBar();
+  $('fileCamera').value = '';
+  $('fileGallery').value = '';
+}
+function setStatus(text, pct){
+  $('status').style.display = 'flex';
+  $('statusText').textContent = text;
+  $('progressBar').style.width = (pct == null ? 10 : Math.round(pct * 100)) + '%';
+}
+function showError(msg){
+  $('status').style.display = 'none';
+  $('error').textContent = msg;
+  $('error').style.display = 'block';
+}
+function showNotice(msg){
+  $('notice').textContent = msg;
+  $('notice').style.display = msg ? 'block' : 'none';
+}
+
+/* ---------- メイン ---------- */
+async function handleFile(file){
+  if(!file) return;
+  resetAll();
+  if(!apiKey()){
+    $('settings').style.display = 'flex';
+    showError('先にAPIキーを設定してください。右上の歯車ボタンから設定できます。\nルビカメラ①②で設定済みのキーがあれば、そのまま使えます。');
+    return;
+  }
+  $('previewImg').onerror = () => { $('preview').style.display = 'none'; };
+  $('previewImg').src = URL.createObjectURL(file);
+  $('preview').style.display = 'block';
+
+  try {
+    await readImage(file);          /* ①本文＋ルビ */
+    if(segments.length) await findWords();  /* ②ことばの意味 */
+  } catch(err){
+    console.error(err);
+    showError(err.userMessage ||
+      '読み取りに失敗しました。インターネット接続を確認して、もう一度お試しください。\n【詳細】' + (err && err.message ? err.message : '不明')
+      + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。');
+  }
+}
+
+/* ---------- ①写真 → 本文＋ルビ ---------- */
+async function readImage(file){
+  setStatus('AIが文字を読み取っています…', 0.25);
+  const {base64, mediaType} = await toBase64(file, 1568, .85);
+
+  const prompt = `この画像に写っている日本語の文章を読み取り、漢字にひらがなの読み（ルビ）を付けてください。
+
+必ず次のJSON形式のみで答えてください。前置きやマークダウンの\`\`\`は一切不要です。
+
+{"segments":[{"t":"漢字部分","r":"よみがな"},{"t":"ひらがな・カタカナ・記号など","r":null}]}
+
+ルール:
+- 文章を先頭から順に区切り、漢字を含む部分には "r" に読みを入れる
+- 送り仮名は分けて、漢字部分だけに読みを付ける（例：「読み」→ {"t":"読","r":"よ"},{"t":"み","r":null}）
+- 漢字を含まない部分（ひらがな、カタカナ、数字、記号、改行）は "r": null
+- 改行は "t":"\\n","r":null として保持する
+- 読みは文脈に合わせた正しい読み方にする
+- 画像に日本語の文章がない場合は {"segments":[]} と答える`;
+
+  const {json, truncated} = await callGemini({
+    parts: [{inline_data: {mime_type: mediaType, data: base64}}, {text: prompt}],
+    salvageKey: 'segments'
+  });
+
+  segments = Array.isArray(json.segments) ? json.segments : [];
+  if(segments.length === 0){
+    showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
+    return;
+  }
+  renderResult();
+  if(truncated){
+    showNotice('文章が長かったため、途中までを表示しています。続きは範囲を分けて撮影してください。');
+  }
+}
+
+/* ---------- ②本文 → むずかしい言葉と意味 ---------- */
+async function findWords(){
+  const text = plainText();
+  $('wordsWrap').style.display = 'flex';
+  $('wordsSpin').style.display = 'block';
+  setStatus('ことばの意味を調べています…', 0.7);
+
+  const prompt = `次の日本語の文章から、読み手にとって意味が分かりにくい言葉を、大事なものから順に最大8個えらび、やさしい日本語で意味を説明してください。
+
+【文章】
+${text.slice(0, 2500)}
+
+えらぶ言葉の例：専門用語、熟語、カタカナ語、かたい言い回し、略語。
+だれでも知っているやさしい言葉（今日・水・仕事 など）はえらばないでください。
+
+必ず次のJSON形式のみで答えてください。前置きやマークダウンの\`\`\`は一切不要です。
+
+{"words":[{"w":"見出しの言葉","r":"その言葉全体のひらがな読み","m":[{"t":"漢字部分","r":"よみがな"},{"t":"ひらがな等","r":null}]}]}
+
+ルール:
+- "w" は文章に出てくるとおりの表記にする
+- "r" は "w" 全体のひらがな読み。漢字がない言葉は "r": null
+- "m" は説明文をルビ用に区切ったもの。漢字を含む部分に読みを入れ、それ以外は "r": null。送り仮名は分けて漢字部分だけに読みを付ける
+- 説明は小学生にもわかる、40〜80文字くらいのやさしい日本語にする
+- この文章での意味（文脈に合う意味）を説明する
+- むずかしい言葉がない場合は {"words":[]} と答える`;
+
+  try {
+    const {json} = await callGemini({
+      parts: [{text: prompt}],
+      salvageKey: 'words'
+    });
+    const words = Array.isArray(json.words) ? json.words : [];
+    $('wordsSpin').style.display = 'none';
+    $('status').style.display = 'none';
+    if(words.length === 0){
+      $('words').innerHTML = '<div class="word-card"><div class="m">むずかしい言葉は見つかりませんでした。調べたい言葉を、上の文章から指でなぞって選んでください。</div></div>';
+      return;
+    }
+    for(const w of words) addWordCard(w);
+  } catch(err){
+    $('wordsSpin').style.display = 'none';
+    $('status').style.display = 'none';
+    $('words').innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'word-card';
+    card.innerHTML = '<div class="m"></div>';
+    card.querySelector('.m').textContent = '意味しらべに失敗しました。文章のふりがなは上に出ています。\n【詳細】' + (err.userMessage || err.message || '不明');
+    card.querySelector('.m').style.whiteSpace = 'pre-line';
+    card.querySelector('.m').style.color = 'var(--shu)';
+    $('words').appendChild(card);
+  }
+}
+
+/* ---------- 選んだ言葉をその場で調べる ---------- */
+function selectedText(){
+  const sel = document.getSelection();
+  if(!sel || sel.isCollapsed || sel.rangeCount === 0) return '';
+  const range = sel.getRangeAt(0);
+  const root = $('result');
+  const anc = range.commonAncestorContainer;
+  if(!root.contains(anc.nodeType === 1 ? anc : anc.parentNode)) return '';
+  /* そのまま取ると ruby の読み（rt）が混ざるので、本文の文字だけを拾う */
+  let out = '';
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n;
+  while((n = walker.nextNode())){
+    if(n.parentNode.tagName === 'RT') continue;
+    if(!range.intersectsNode(n)) continue;
+    const s = n.nodeValue;
+    const start = (n === range.startContainer) ? range.startOffset : 0;
+    const end = (n === range.endContainer) ? range.endOffset : s.length;
+    out += s.slice(start, end);
+  }
+  /* 引用符などはAIへの指示文を壊すので落とす */
+  return out.replace(/\s+/g, '').replace(/["'\\`{}]/g, '').slice(0, 30);
+}
+function showLookupBar(word){
+  $('lookupSel').textContent = '「' + word + '」';
+  $('lookupBar').style.display = 'block';
+}
+function hideLookupBar(){ $('lookupBar').style.display = 'none'; }
+$('btnLookupClose').onclick = () => {
+  try{ document.getSelection().removeAllRanges(); }catch(e){}
+  hideLookupBar();
+};
+document.addEventListener('selectionchange', () => {
+  const w = selectedText();
+  if(w) showLookupBar(w); else hideLookupBar();
+});
+
+$('btnLookup').onclick = async () => {
+  const word = selectedText();
+  if(!word) return;
+  if(!apiKey()){ showError('APIキーが設定されていません。右上の歯車ボタンから設定してください。'); return; }
+  hideLookupBar();
+  try{ document.getSelection().removeAllRanges(); }catch(e){}
+
+  $('wordsWrap').style.display = 'flex';
+  const card = addWordCard({w: word, r: null, m: null}, true);
+  card.scrollIntoView({behavior: 'smooth', block: 'center'});
+
+  const seq = ++lookupSeq;
+  const prompt = `次の文章の中に出てくる言葉「${word}」の意味を、やさしい日本語で説明してください。
+
+【文章】
+${plainText().slice(0, 1500)}
+
+必ず次のJSON形式のみで答えてください。前置きやマークダウンの\`\`\`は一切不要です。
+
+{"w":"${word}","r":"この言葉全体のひらがな読み","m":[{"t":"漢字部分","r":"よみがな"},{"t":"ひらがな等","r":null}]}
+
+ルール:
+- "r" は「${word}」全体のひらがな読み。漢字がなければ null
+- "m" は説明文をルビ用に区切ったもの。漢字を含む部分に読みを入れ、それ以外は "r": null。送り仮名は分けて漢字部分だけに読みを付ける
+- 説明は小学生にもわかる、40〜80文字くらいのやさしい日本語にする
+- この文章での意味（文脈に合う意味）を説明する`;
+
+  try {
+    const {json} = await callGemini({parts: [{text: prompt}], salvageKey: null});
+    if(seq !== lookupSeq) return;
+    const data = (json && Array.isArray(json.words)) ? (json.words[0] || {}) : json;
+    updateWordCard(card, {w: word, r: data.r || null, m: Array.isArray(data.m) ? data.m : [{t: '（説明を受け取れませんでした）', r: null}]});
+  } catch(err){
+    if(seq !== lookupSeq) return;
+    updateWordCard(card, {w: word, r: null, m: [{t: '調べられませんでした：' + (err.userMessage || err.message || '不明'), r: null}]}, true);
+  }
+};
+
+/* ---------- ことばカード ---------- */
+function addWordCard(word, pending){
+  const card = document.createElement('div');
+  card.className = 'word-card' + (pending ? ' pending' : '');
+  $('words').appendChild(card);
+  updateWordCard(card, word, false, pending);
+  return card;
+}
+function updateWordCard(card, word, isError, pending){
+  card.className = 'word-card' + (pending ? ' pending' : '');
+  card.innerHTML = '';
+
+  const w = document.createElement('div');
+  w.className = 'w';
+  if(word.r && KANJI_RE.test(word.w)) w.appendChild(rubyNode(word.w, word.r));
+  else w.textContent = word.w;
+  card.appendChild(w);
+
+  const m = document.createElement('div');
+  m.className = 'm';
+  if(!word.m){
+    m.textContent = '調べています…';
+    m.style.color = 'var(--ink-soft)';
+  } else {
+    renderSegmentsInto(m, word.m);
+    if(isError) m.style.color = 'var(--shu)';
+  }
+  card.appendChild(m);
+
+  if(word.m && !isError){
+    const btn = document.createElement('button');
+    btn.className = 'find';
+    btn.textContent = '本文の中をさがす';
+    btn.onclick = () => highlightInResult(word.w);
+    card.appendChild(btn);
+    /* 差し替えで完成したカードも一覧に加える（コピー用） */
+    if(!wordList.includes(word)) wordList.push(word);
+  }
+}
+
+/* 本文の中の該当語を黄色くして、そこへスクロールする */
+function highlightInResult(word){
+  const root = $('result');
+  root.querySelectorAll('.hit').forEach(el => {
+    const p = el.parentNode;
+    while(el.firstChild) p.insertBefore(el.firstChild, el);
+    p.removeChild(el);
+    p.normalize();
+  });
+  /* 「体位変換」のように複数の ruby にまたがる語も探せるよう、
+     本文の文字だけを一続きにして位置を求め、ノードごとに切り分けて色を付ける */
+  const nodes = [];
+  let full = '';
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n;
+  while((n = walker.nextNode())){
+    if(n.parentNode.tagName === 'RT') continue;   /* ルビの読みは対象外 */
+    nodes.push({node: n, start: full.length});
+    full += n.nodeValue;
+  }
+
+  const ranges = [];
+  for(let i = full.indexOf(word); i >= 0; i = full.indexOf(word, i + word.length)){
+    ranges.push([i, i + word.length]);
+  }
+  if(ranges.length === 0){
+    showNotice('「' + word + '」は本文の中に見つかりませんでした（言い回しが少し違うようです）。');
+    return;
+  }
+  showNotice('');
+
+  /* ノードごとに、後ろの切れ目から順に処理する（前の位置がずれないように） */
+  const byNode = new Map();
+  for(const [s, e] of ranges){
+    for(const it of nodes){
+      const ns = it.start, ne = ns + it.node.nodeValue.length;
+      if(ne <= s || ns >= e) continue;
+      if(!byNode.has(it.node)) byNode.set(it.node, []);
+      byNode.get(it.node).push([Math.max(0, s - ns), Math.min(ne - ns, e - ns)]);
+    }
+  }
+  const spans = [];
+  for(const [node, cuts] of byNode){
+    cuts.sort((a, b) => b[0] - a[0]);
+    for(const [from, to] of cuts){
+      let t = node;
+      if(to < t.nodeValue.length) t.splitText(to);
+      if(from > 0) t = t.splitText(from);
+      const span = document.createElement('span');
+      span.className = 'hit';
+      t.parentNode.insertBefore(span, t);
+      span.appendChild(t);
+      spans.push(span);
+    }
+  }
+  const first = root.querySelector('.hit') || spans[0];
+  if(first) first.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+/* ---------- Gemini 呼び出し ---------- */
+async function callGemini({parts, salvageKey}){
+  const models = await getModelCandidates();
+  const errors = [];
+  for(const model of models){
+    let res;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+        {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            contents: [{parts}],
+            generationConfig: {responseMimeType: 'application/json'}
+          })
+        }
+      );
+    } catch(e){
+      errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
+      continue;
+    }
+
+    if(!res.ok){
+      let detail = 'HTTP ' + res.status;
+      try {
+        const eb = await res.json();
+        if(eb.error?.message) detail = eb.error.message;
+      } catch(e){}
+      if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
+        const e = new Error('bad key');
+        e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
+        throw e;
+      }
+      if(/Expected OAuth|UNAUTHENTICATED|invalid authentication/i.test(detail)){
+        const e = new Error('key not recognized');
+        e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
+        throw e;
+      }
+      if(res.status === 429){
+        errors.push(model + ': 無料枠の上限（しばらく待つか、明日お試しください）');
+        continue;
+      }
+      errors.push(model + ': ' + detail);
+      continue;
+    }
+
+    let data;
+    try { data = await res.json(); }
+    catch(e){ errors.push(model + ': 応答を読めませんでした'); continue; }
+
+    const cand = data.candidates?.[0];
+    const finish = cand?.finishReason || '';
+    const text = (cand?.content?.parts || []).map(p => p.text || '').join('');
+
+    try {
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if(start < 0 || end <= start) throw new Error('no json');
+      return {json: JSON.parse(text.slice(start, end + 1)), truncated: finish === 'MAX_TOKENS'};
+    } catch(parseErr){
+      /* 途中で切れた応答でも、読めた分だけ拾う */
+      const salvaged = salvageKey ? salvageArray(text, salvageKey) : null;
+      if(salvaged && salvaged.length){
+        return {json: {[salvageKey]: salvaged}, truncated: true};
+      }
+      errors.push(model + ': 応答の解析に失敗（finishReason: ' + (finish || '不明') + '、文字数: ' + text.length + '）');
+      continue;
+    }
+  }
+  const err = new Error('gemini failed');
+  err.userMessage = 'AIへの問い合わせに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
+    + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  throw err;
+}
+
+/* 途切れたJSONから、完成している要素だけを取り出す */
+function salvageArray(text, key){
+  if(key === 'segments'){
+    const out = [];
+    const re = /\{"t":"((?:[^"\\]|\\.)*)","r":(null|"(?:[^"\\]|\\.)*")\}/g;
+    let m;
+    while((m = re.exec(text))){
+      try { out.push(JSON.parse(m[0])); } catch(e){}
+    }
+    return out;
+  }
+  if(key === 'words'){
+    /* {"w":...,"r":...,"m":[...]} の単位で、閉じているものだけを拾う */
+    const out = [];
+    const re = /\{"w":\s*"(?:[^"\\]|\\.)*",\s*"r":\s*(?:null|"(?:[^"\\]|\\.)*"),\s*"m":\s*\[[\s\S]*?\]\s*\}/g;
+    let m;
+    while((m = re.exec(text))){
+      try { out.push(JSON.parse(m[0])); } catch(e){}
+    }
+    return out;
+  }
+  return null;
+}
+
+/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする） */
+let modelCache = null;
+async function getModelCandidates(){
+  if(modelCache) return modelCache;
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
+    );
+    if(!res.ok) return fallback;
+    const data = await res.json();
+    const names = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => (m.name || '').replace('models/', ''))
+      .filter(n => /^gemini-/.test(n) && /flash/.test(n))
+      .filter(n => !/(preview|exp|thinking|image|tts|audio|live|8b)/.test(n));
+    names.sort((a, b) => {
+      const va = parseFloat((a.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
+      const vb = parseFloat((b.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
+      if(vb !== va) return vb - va;
+      return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
+    });
+    modelCache = names.length ? names.slice(0, 3) : fallback;
+    return modelCache;
+  } catch(e){
+    return fallback;
+  }
+}
+
+/* ---------- 画像の下ごしらえ ---------- */
+async function toBase64(file, maxSize, quality){
+  try {
+    return await canvasBase64(file, maxSize, quality);
+  } catch(e){
+    if(file.size > 15 * 1024 * 1024){
+      const err = new Error('too big');
+      err.userMessage = '写真のサイズが大きすぎて送れませんでした。カメラ設定の画質を下げるか、写真のスクリーンショットを撮ってそれを選んでください。';
+      throw err;
+    }
+    let mime = file.type;
+    if(!mime){
+      const n = (file.name || '').toLowerCase();
+      mime = (n.endsWith('.heic') || n.endsWith('.heif')) ? 'image/heic' : 'image/jpeg';
+    }
+    const raw = await fileToBase64(file);
+    return {base64: raw, mediaType: mime};
+  }
+}
+function canvasBase64(file, maxSize, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let {width:w, height:h} = img;
+      const scale = Math.min(1, maxSize / Math.max(w, h));
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve({base64: dataUrl.split(',')[1], mediaType: 'image/jpeg'});
+    };
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = () => reject(new Error('read failed'));
+    r.readAsDataURL(file);
+  });
+}
+
+/* ---------- 表示 ---------- */
+const KANJI_RE = /[㐀-鿿々〆ヶ]/;
+function plainText(){ return segments.map(s => s.t || '').join(''); }
+
+function rubyNode(t, r){
+  const ruby = document.createElement('ruby');
+  ruby.appendChild(document.createTextNode(t));
+  const rt = document.createElement('rt');
+  rt.textContent = r;
+  ruby.appendChild(rt);
+  return ruby;
+}
+function renderSegmentsInto(el, list){
+  el.innerHTML = '';
+  for(const s of list){
+    if(!s || !s.t) continue;
+    if(s.t === '\n'){ el.appendChild(document.createElement('br')); continue; }
+    if(s.r && KANJI_RE.test(s.t)) el.appendChild(rubyNode(s.t, s.r));
+    else el.appendChild(document.createTextNode(s.t));
+  }
+}
+function renderResult(){
+  $('status').style.display = 'none';
+  renderSegmentsInto($('result'), segments);
+  $('resultWrap').style.display = 'flex';
+}
+</script>
+</body>
+</html>
