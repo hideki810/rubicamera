@@ -182,6 +182,7 @@
       <button id="btnDeleteKey">キーを削除</button>
     </div>
     <button id="btnTest" style="border:1px solid var(--accent);background:var(--paper);color:var(--accent);border-radius:10px;padding:12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;">接続テスト（うまく動かないとき）</button>
+    <button id="btnUpdate" style="border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:10px;padding:12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;">最新版に更新する（古い画面のまま動くとき）</button>
     <div id="testResult" style="display:none;white-space:pre-line;font-size:12px;line-height:1.9;background:var(--bg);border-radius:10px;padding:12px;color:var(--ink);"></div>
     <p>キーはこのスマホの中にだけ保存されます。キーがない場合は、通信不要のオフライン読み取りで動きます。</p>
   </div>
@@ -221,12 +222,13 @@
 </main>
 
 <footer>
-  ルビカメラ v6.3 · オフラインモードでは写真は端末の外に送信されません<br>
+  ルビカメラ <span id="verLabel"></span> · オフラインモードでは写真は端末の外に送信されません<br>
   高精度モードでは写真がGoogleのAIに送信されます
 </footer>
 
 <script>
 const $ = id => document.getElementById(id);
+const APP_VERSION = 'v6.4';
 let segments = [];
 let tokenizerPromise = null;
 const mem = {};
@@ -295,6 +297,11 @@ $('btnDeleteKey').onclick = () => {
   updateMode();
 };
 $('btnTest').onclick = testConnection;
+$('verLabel').textContent = APP_VERSION;
+/* 端末に古い画面が残っているとき用：URLに印を付けて読み込み直させる */
+$('btnUpdate').onclick = () => {
+  location.replace(location.pathname + '?v=' + Date.now());
+};
 
 async function testConnection(){
   const out = $('testResult');
@@ -302,7 +309,8 @@ async function testConnection(){
   out.textContent = 'テスト中…（10秒ほどかかります）';
   const k = normalizeKey($('apiKeyInput').value) || apiKey();
   if(!k){ out.textContent = 'キーが未設定です。上の欄にキーを貼り付けてから押してください。'; return; }
-  const lines = [];
+  /* スクショだけで「古い画面のまま動いていないか」を判断できるよう、必ず先頭に出す */
+  const lines = ['【この画面のバージョン】' + APP_VERSION];
 
   // ⓪ 保存されているキーの形式チェック
   if(keyLooksValid(k)){

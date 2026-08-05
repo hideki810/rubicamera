@@ -233,6 +233,7 @@
       <button id="btnSaveKey">保存する</button>
       <button id="btnDeleteKey">キーを削除</button>
     </div>
+    <button id="btnUpdate" style="border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:10px;padding:12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;">最新版に更新する（古い画面のまま動くとき）</button>
     <p>キーはこのスマホの中にだけ保存されます。</p>
   </div>
 
@@ -287,12 +288,13 @@
 </div>
 
 <footer>
-  ルビカメラ３（意味しらべ）v1.0<br>
+  ルビカメラ３（意味しらべ）<span id="verLabel"></span><br>
   写真と文章はGoogleのAIに送信されます
 </footer>
 
 <script>
 const $ = id => document.getElementById(id);
+const APP_VERSION = 'v1.1';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
@@ -355,6 +357,11 @@ $('btnDeleteKey').onclick = () => {
   store.del('rubiKey');
   $('apiKeyInput').value = '';
   updateMode();
+};
+$('verLabel').textContent = APP_VERSION;
+/* 端末に古い画面が残っているとき用：URLに印を付けて読み込み直させる */
+$('btnUpdate').onclick = () => {
+  location.replace(location.pathname + '?v=' + Date.now());
 };
 
 /* ---------- 基本操作 ---------- */

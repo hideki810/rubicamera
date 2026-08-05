@@ -202,6 +202,7 @@
       <button id="btnSaveKey">保存する</button>
       <button id="btnDeleteKey">キーを削除</button>
     </div>
+    <button id="btnUpdate" style="border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:10px;padding:12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;">最新版に更新する（古い画面のまま動くとき）</button>
     <p>キーはこのスマホの中にだけ保存されます。キーの作り方や接続テストは<a href="index.html">写真版の設定画面</a>にあります。</p>
   </div>
 
@@ -238,12 +239,13 @@
 </main>
 
 <footer>
-  ルビカメラ２ v1.4 · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
+  ルビカメラ２ <span id="verLabel"></span> · 読み取りの瞬間だけ映像がGoogleのAIに送信されます<br>
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
 <script>
 const $ = id => document.getElementById(id);
+const APP_VERSION = 'v1.5';
 const mem = {};
 const store = {
   get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
@@ -290,6 +292,11 @@ $('btnSaveKey').onclick = () => {
 $('btnDeleteKey').onclick = () => {
   store.del('rubiKey');
   $('apiKeyInput').value = '';
+};
+$('verLabel').textContent = APP_VERSION;
+/* 端末に古い画面が残っているとき用：URLに印を付けて読み込み直させる */
+$('btnUpdate').onclick = () => {
+  location.replace(location.pathname + '?v=' + Date.now());
 };
 
 /* ---------- 状態 ---------- */
