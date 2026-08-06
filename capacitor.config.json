@@ -1,0 +1,8 @@
+{
+  "appId": "com.hideki810.rubicamera",
+  "appName": "ルビカメラ",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}

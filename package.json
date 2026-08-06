@@ -1,0 +1,29 @@
+{
+  "name": "rubicamera",
+  "version": "1.0.0",
+  "description": "ルビカメラ（カメラで撮った/かざした文字にふりがなを表示するWebアプリ）のAndroidアプリ化プロジェクト",
+  "main": "index.js",
+  "scripts": {
+    "sync": "cap sync android",
+    "open:android": "cap open android"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hideki810/rubicamera.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hideki810/rubicamera/issues"
+  },
+  "homepage": "https://github.com/hideki810/rubicamera#readme",
+  "dependencies": {
+    "@capacitor/android": "7.6.8",
+    "@capacitor/core": "7.6.8"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "7.6.8"
+  }
+}
