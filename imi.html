@@ -292,32 +292,14 @@
   写真と文章はGoogleのAIに送信されます
 </footer>
 
+<script src="common.js?v=1"></script>
 <script>
-const $ = id => document.getElementById(id);
-const APP_VERSION = 'v1.2';
+const APP_VERSION = 'v1.3';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const mem = {};
-const store = {
-  get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
-  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
-  del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
-};
-
-/* ---------- キーとモード（ルビカメラ①②と共通） ---------- */
-function apiKey(){ return (store.get('rubiKey') || '').trim(); }
-function normalizeKey(v){
-  let s = (v || '');
-  s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
-  s = s.replace(/[\s\u00a0\u3000\u200b-\u200d\ufeff]/g, '');
-  const u = s.match(/[#&]k=([^&#?]+)/);
-  if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
-  return s;
-}
-function keyLooksValid(k){ return /^[\x21-\x7E]{20,}$/.test(k); }
+/* ---------- モード表示（キーの処理は common.js） ---------- */
 function updateMode(){
   const chip = $('modeChip');
   if(apiKey()){
@@ -359,11 +341,7 @@ $('btnDeleteKey').onclick = () => {
   $('apiKeyInput').value = '';
   updateMode();
 };
-$('verLabel').textContent = APP_VERSION;
-/* 端末に古い画面が残っているとき用：URLに印を付けて読み込み直させる */
-$('btnUpdate').onclick = () => {
-  location.replace(location.pathname + '?v=' + Date.now());
-};
+setupVersionUI(APP_VERSION);
 
 /* ---------- 基本操作 ---------- */
 $('btnCapture').onclick = () => $('fileCamera').click();
@@ -744,12 +722,6 @@ function highlightInResult(word){
 }
 
 /* ---------- Gemini 呼び出し ---------- */
-/* 混雑・一時的な不具合かどうか（この場合は待ってやり直す価値がある） */
-function isTransient(status, detail){
-  return [429, 500, 502, 503, 504].includes(status)
-    || /high demand|overloaded|UNAVAILABLE|try again later|RESOURCE_EXHAUSTED|quota/i.test(detail || '');
-}
-
 /* 1つのモデルに1回問い合わせる。戻り値：
    {ok:true, json, truncated}
    {ok:false, retry:true|false, msg}  ← retry=true は混雑などで再挑戦の価値あり */
@@ -875,90 +847,7 @@ function salvageArray(text, key){
   return null;
 }
 
-/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする）
-   新しい順の上位3つに加えて、混雑しにくい安定版・軽量版も予備として後ろに並べる */
-let modelCache = null;
-const STABLE_BACKUPS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
-async function getModelCandidates(){
-  if(modelCache) return modelCache;
-  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
-    );
-    if(!res.ok) return fallback;
-    const data = await res.json();
-    const names = (data.models || [])
-      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map(m => (m.name || '').replace('models/', ''))
-      .filter(n => /^gemini-/.test(n) && /flash/.test(n))
-      .filter(n => !/(preview|exp|thinking|image|tts|audio|live|8b)/.test(n));
-    names.sort((a, b) => {
-      const va = parseFloat((a.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
-      const vb = parseFloat((b.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
-      if(vb !== va) return vb - va;
-      return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
-    });
-    const list = names.slice(0, 3);
-    for(const b of STABLE_BACKUPS){
-      if(!list.includes(b) && (names.includes(b) || b.endsWith('-latest'))) list.push(b);
-    }
-    const oldLite = names.find(n => n.includes('lite') && !list.includes(n));
-    if(oldLite) list.push(oldLite);
-    modelCache = list.length ? list : fallback;
-    return modelCache;
-  } catch(e){
-    return fallback;
-  }
-}
-
-/* ---------- 画像の下ごしらえ ---------- */
-async function toBase64(file, maxSize, quality){
-  try {
-    return await canvasBase64(file, maxSize, quality);
-  } catch(e){
-    if(file.size > 15 * 1024 * 1024){
-      const err = new Error('too big');
-      err.userMessage = '写真のサイズが大きすぎて送れませんでした。カメラ設定の画質を下げるか、写真のスクリーンショットを撮ってそれを選んでください。';
-      throw err;
-    }
-    let mime = file.type;
-    if(!mime){
-      const n = (file.name || '').toLowerCase();
-      mime = (n.endsWith('.heic') || n.endsWith('.heif')) ? 'image/heic' : 'image/jpeg';
-    }
-    const raw = await fileToBase64(file);
-    return {base64: raw, mediaType: mime};
-  }
-}
-function canvasBase64(file, maxSize, quality){
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      let {width:w, height:h} = img;
-      const scale = Math.min(1, maxSize / Math.max(w, h));
-      w = Math.round(w * scale); h = Math.round(h * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', quality);
-      resolve({base64: dataUrl.split(',')[1], mediaType: 'image/jpeg'});
-    };
-    img.onerror = () => reject(new Error('image load failed'));
-    img.src = URL.createObjectURL(file);
-  });
-}
-function fileToBase64(file){
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(',')[1]);
-    r.onerror = () => reject(new Error('read failed'));
-    r.readAsDataURL(file);
-  });
-}
-
 /* ---------- 表示 ---------- */
-const KANJI_RE = /[㐀-鿿々〆ヶ]/;
 function plainText(){ return segments.map(s => s.t || '').join(''); }
 
 function rubyNode(t, r){

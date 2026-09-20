@@ -243,27 +243,11 @@
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
+<script src="common.js?v=1"></script>
 <script>
-const $ = id => document.getElementById(id);
-const APP_VERSION = 'v1.6';
-const mem = {};
-const store = {
-  get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
-  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
-  del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
-};
+const APP_VERSION = 'v1.7';
 
-/* ---------- APIキー（ルビカメラ①と共通の保存場所） ---------- */
-function apiKey(){ return (store.get('rubiKey') || '').trim(); }
-function normalizeKey(v){
-  let s = (v || '');
-  s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
-  s = s.replace(/[\s 　​-‍﻿]/g, '');
-  const u = s.match(/[#&]k=([^&#?]+)/);
-  if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
-  return s;
-}
-function keyLooksValid(k){ return /^[\x21-\x7E]{20,}$/.test(k); }
+/* ---------- APIキー（3画面で共通。共通処理は common.js にあります） ---------- */
 (function(){
   const m = location.hash.match(/[#&]k=([^&]+)/);
   if(m){
@@ -293,11 +277,7 @@ $('btnDeleteKey').onclick = () => {
   store.del('rubiKey');
   $('apiKeyInput').value = '';
 };
-$('verLabel').textContent = APP_VERSION;
-/* 端末に古い画面が残っているとき用：URLに印を付けて読み込み直させる */
-$('btnUpdate').onclick = () => {
-  location.replace(location.pathname + '?v=' + Date.now());
-};
+setupVersionUI(APP_VERSION);
 
 /* ---------- 状態 ---------- */
 let stream = null;
@@ -379,7 +359,7 @@ async function startCamera(){
   running = true;
   state = 'watching';
   lastSample = null; steadyCount = 0; unsteadyTicks = 0; lastScanSample = null; lastScanEmpty = false;
-  getModelCandidates();  /* 初回スキャンを速くするため、モデル一覧を先に取得しておく */
+  getModelCandidates({preferLite: true});  /* 初回スキャンを速くするため、モデル一覧を先に取得しておく */
   $('startPane').style.display = 'none';
   $('camActions').style.display = 'flex';
   setLiveStatus('文字にかざして、少し止めてください', false);
@@ -586,7 +566,7 @@ async function callGemini(base64){
 - 読みは文脈に合わせた正しい読み方にする
 - 画像に日本語の文章がない場合は {"lines":[]} と答える`;
 
-  const models = await getModelCandidates();
+  const models = await getModelCandidates({preferLite: true});
   const errors = [];
   let quotaHit = false, quotaDaily = false, rateLimited = false, retryDelaySec = 0;
   const deadline = Date.now() + SCAN_DEADLINE;
@@ -698,42 +678,6 @@ async function callGemini(base64){
   err.userMessage = 'AIでの読み取りに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
     + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
   throw err;
-}
-
-/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（ルビカメラ①と同じ方式）
-   新しい順の上位3つに加えて、混雑しにくい安定版・軽量版も予備として後ろに並べる */
-let modelCache = null;
-const STABLE_BACKUPS = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash'];
-async function getModelCandidates(){
-  if(modelCache) return modelCache;
-  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
-    );
-    if(!res.ok) return fallback;
-    const data = await res.json();
-    const names = (data.models || [])
-      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map(m => (m.name || '').replace('models/', ''))
-      .filter(n => /^gemini-/.test(n) && /flash/.test(n))
-      .filter(n => !/(preview|exp|thinking|image|tts|audio|live|8b)/.test(n));
-    /* ルビカメラ２は速さ優先：同じ世代なら軽量版（lite）を先に使う */
-    names.sort((a, b) => {
-      const va = parseFloat((a.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
-      const vb = parseFloat((b.match(/gemini-(\d+(?:\.\d+)?)/) || [0,0])[1]);
-      if(vb !== va) return vb - va;
-      return (a.includes('lite') ? 0 : 1) - (b.includes('lite') ? 0 : 1);
-    });
-    const list = names.slice(0, 3);
-    for(const b of STABLE_BACKUPS){
-      if(!list.includes(b) && (names.includes(b) || b.endsWith('-latest'))) list.push(b);
-    }
-    modelCache = list.length ? list : fallback;
-    return modelCache;
-  } catch(e){
-    return fallback;
-  }
 }
 
 /* ---------- 表示 ---------- */
