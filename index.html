@@ -228,7 +228,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const APP_VERSION = 'v6.4';
+const APP_VERSION = 'v6.5';
 let segments = [];
 let tokenizerPromise = null;
 const mem = {};
@@ -237,6 +237,7 @@ const store = {
   set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
   del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
 };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* ---------- モード表示・設定 ---------- */
 function apiKey(){ return (store.get('rubiKey') || '').trim(); }
@@ -333,24 +334,35 @@ async function testConnection(){
     lines.push('① 鍵とネットの確認：NG → ' + (e.name || '') + ' ' + (e.message || '通信不可'));
   }
 
-  // ② AIへの小さな送信テスト
+  // ② AIへの小さな送信テスト（混雑していたら別のモデルも順に試す）
   try {
     const models = await getModelCandidates();
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${models[0]}:generateContent?key=${encodeURIComponent(k)}`,
-      {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({contents: [{parts: [{text: '「はい」とだけ答えてください'}]}]})
+    let okModel = null;
+    const fails = [];
+    for(const m of models){
+      try {
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(k)}`,
+          {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({contents: [{parts: [{text: '「はい」とだけ答えてください'}]}]})
+          }
+        );
+        if(r.ok){ okModel = m; break; }
+        let msg = 'HTTP ' + r.status;
+        try { const b = await r.json(); if(b.error?.message) msg += ' / ' + b.error.message; } catch(e){}
+        fails.push(m + ': ' + msg);
+      } catch(e){
+        fails.push(m + ': ' + (e.name || '') + ' ' + (e.message || '通信不可'));
       }
-    );
-    if(r.ok){
-      lines.push('② AIへの送信：OK（' + models[0] + '）');
+    }
+    if(okModel){
+      lines.push('② AIへの送信：OK（' + okModel + '）');
+      if(fails.length) lines.push('　（混雑などで使えなかったモデル：' + fails.length + '個）');
       lines.push('→ 通信は正常です。写真で失敗する場合は、写真が大きすぎる可能性があります。小さめのスクリーンショットでお試しください。');
     } else {
-      let msg = 'HTTP ' + r.status;
-      try { const b = await r.json(); if(b.error?.message) msg += ' / ' + b.error.message; } catch(e){}
-      lines.push('② AIへの送信：NG → ' + msg);
+      lines.push('② AIへの送信：NG → ' + fails.join(' ／ '));
     }
   } catch(e){
     lines.push('② AIへの送信：NG → ' + (e.name || '') + ' ' + (e.message || '通信不可'));
@@ -396,6 +408,8 @@ async function testConnection(){
     } else {
       lines.push('【判定】通信がすべて失敗しています。①機内モードを一度オン→オフ、②Wi-Fiに切り替え、で再テストしてください。それでもダメなら、別のスマホで同じURLを開いてテストしてみてください。');
     }
+  } else if(/②[^③④⑤]*NG/.test(joined) && /(503|429|high demand|UNAVAILABLE|overloaded)/i.test(joined)){
+    lines.push('【判定】通信もキーも正常ですが、GoogleのAIが混み合っています。数分待ってからもう一度お試しください。');
   }
 
   lines.push('この結果をスクショしてClaudeに見せてください。');
@@ -469,11 +483,13 @@ async function handleFile(file){
 }
 
 /* ---------- 高精度モード（Gemini） ---------- */
-async function runGemini(file){
-  setStatus('AIが文字を読み取っています…', 0.3);
-  const {base64, mediaType} = await toBase64(file, 1568, .85, false);
+/* 混雑・一時的な不具合かどうかの判定（この場合は待ってやり直す価値がある） */
+function isTransient(status, detail){
+  return [429, 500, 502, 503, 504].includes(status)
+    || /high demand|overloaded|UNAVAILABLE|try again later|RESOURCE_EXHAUSTED|quota/i.test(detail || '');
+}
 
-  const prompt = `この画像に写っている日本語の文章を読み取り、漢字にひらがなの読み（ルビ）を付けてください。
+const GEMINI_PROMPT = `この画像に写っている日本語の文章を読み取り、漢字にひらがなの読み（ルビ）を付けてください。
 
 必ず次のJSON形式のみで答えてください。前置きやマークダウンの\`\`\`は一切不要です。
 
@@ -487,110 +503,147 @@ async function runGemini(file){
 - 読みは文脈に合わせた正しい読み方にする
 - 画像に日本語の文章がない場合は {"segments":[]} と答える`;
 
+/* 1つのモデルに1回問い合わせる。戻り値：
+   {done:true}                      … 成功（結果表示まで完了）
+   {done:false, retry:true|false, msg} … 失敗（retry=true は混雑などで再挑戦の価値あり） */
+async function tryModel(model, base64, mediaType){
+  let res;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {inline_data: {mime_type: mediaType, data: base64}},
+              {text: GEMINI_PROMPT}
+            ]
+          }],
+          generationConfig: {
+            responseMimeType: 'application/json'
+          }
+        })
+      }
+    );
+  } catch(e){
+    return {done: false, retry: true, msg: model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')'};
+  }
+
+  if(!res.ok){
+    let detail = 'HTTP ' + res.status;
+    try {
+      const eb = await res.json();
+      if(eb.error?.message) detail = eb.error.message;
+    } catch(e){}
+    if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
+      const e = new Error('bad key');
+      e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
+      throw e;
+    }
+    if(/Expected OAuth|UNAUTHENTICATED|invalid authentication/i.test(detail)){
+      const e = new Error('key not recognized');
+      e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
+      throw e;
+    }
+    return {done: false, retry: isTransient(res.status, detail), msg: model + ': HTTP ' + res.status + ' ' + detail.slice(0, 80)};
+  }
+
+  try {
+    const data = await res.json();
+    const cand = data.candidates?.[0];
+    const finish = cand?.finishReason || '';
+    const text = (cand?.content?.parts || [])
+      .map(p => p.text || '').join('');
+    let parsedSegments = null;
+    let truncated = false;
+    try {
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if(start < 0 || end <= start) throw new Error('no json in response');
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      if(!Array.isArray(parsed.segments)) throw new Error('no segments array');
+      parsedSegments = parsed.segments;
+    } catch(parseErr){
+      /* 応答が途中で切れていても、読めた部分だけ拾って表示する */
+      const salvage = [];
+      const re = /\{"t":"((?:[^"\\]|\\.)*)","r":(null|"(?:[^"\\]|\\.)*")\}/g;
+      let mm;
+      while((mm = re.exec(text))){
+        try { salvage.push(JSON.parse(mm[0])); } catch(e2){}
+      }
+      if(salvage.length === 0){
+        return {done: false, retry: false, msg: model + ': 応答の解析に失敗（finishReason: ' + (finish || '不明') + '、応答文字数: ' + text.length + '）'};
+      }
+      parsedSegments = salvage;
+      truncated = true;
+    }
+    segments = parsedSegments;
+    if(segments.length === 0){
+      showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
+      return {done: true};
+    }
+    renderResult();
+    if(truncated || finish === 'MAX_TOKENS'){
+      showError('文章が長かったため、途中までの結果を表示しています。続きは範囲を分けて撮影してください。');
+    }
+    return {done: true};
+  } catch(e){
+    return {done: false, retry: false, msg: model + ': 応答の解析に失敗（' + (e.message || '不明') + '）'};
+  }
+}
+
+async function runGemini(file){
+  setStatus('AIが文字を読み取っています…', 0.3);
+  const {base64, mediaType} = await toBase64(file, 1568, .85, false);
+
   const models = await getModelCandidates();
   const errors = [];
-  for(const model of models){
-    let res;
-    try {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
-        {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                {inline_data: {mime_type: mediaType, data: base64}},
-                {text: prompt}
-              ]
-            }],
-            generationConfig: {
-              responseMimeType: 'application/json'
-            }
-          })
-        }
-      );
-    } catch(e){
-      errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
-      continue;
-    }
+  const MAX_ROUNDS = 3;              /* 混雑のときは最大3周まで再挑戦 */
+  const WAITS = [3000, 6000];        /* 周と周のあいだの待ち時間（3秒→6秒） */
+  let pending = models.slice();      /* まだ挑戦する価値があるモデル */
+  let sawTransient = false;
 
-    if(!res.ok){
-      let detail = 'HTTP ' + res.status;
-      try {
-        const eb = await res.json();
-        if(eb.error?.message) detail = eb.error.message;
-      } catch(e){}
-      if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
-        const e = new Error('bad key');
-        e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
-        throw e;
+  for(let round = 0; round < MAX_ROUNDS && pending.length; round++){
+    const next = [];
+    for(const model of pending){
+      if(round === 0){
+        setStatus('AIが文字を読み取っています…', 0.3);
+      } else {
+        setStatus('AIが混み合っています。もう一度挑戦中…（' + (round + 1) + '/' + MAX_ROUNDS + '回目）', 0.5 + round * 0.15);
       }
-      if(/Expected OAuth|UNAUTHENTICATED|invalid authentication/i.test(detail)){
-        const e = new Error('key not recognized');
-        e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
-        throw e;
-      }
-      errors.push(model + ': ' + detail);
-      continue;
+      const r = await tryModel(model, base64, mediaType);
+      if(r.done) return;
+      errors.push(r.msg);
+      if(r.retry){ sawTransient = true; next.push(model); }
     }
-
-    try {
-      const data = await res.json();
-      const cand = data.candidates?.[0];
-      const finish = cand?.finishReason || '';
-      const text = (cand?.content?.parts || [])
-        .map(p => p.text || '').join('');
-      let parsedSegments = null;
-      let truncated = false;
-      try {
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if(start < 0 || end <= start) throw new Error('no json in response');
-        const parsed = JSON.parse(text.slice(start, end + 1));
-        if(!Array.isArray(parsed.segments)) throw new Error('no segments array');
-        parsedSegments = parsed.segments;
-      } catch(parseErr){
-        /* 応答が途中で切れていても、読めた部分だけ拾って表示する */
-        const salvage = [];
-        const re = /\{"t":"((?:[^"\\]|\\.)*)","r":(null|"(?:[^"\\]|\\.)*")\}/g;
-        let mm;
-        while((mm = re.exec(text))){
-          try { salvage.push(JSON.parse(mm[0])); } catch(e2){}
-        }
-        if(salvage.length === 0){
-          errors.push(model + ': 応答の解析に失敗（finishReason: ' + (finish || '不明') + '、応答文字数: ' + text.length + '）');
-          continue;
-        }
-        parsedSegments = salvage;
-        truncated = true;
-      }
-      segments = parsedSegments;
-      if(segments.length === 0){
-        showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
-        return;
-      }
-      renderResult();
-      if(truncated || finish === 'MAX_TOKENS'){
-        showError('文章が長かったため、途中までの結果を表示しています。続きは範囲を分けて撮影してください。');
-      }
-      return;
-    } catch(e){
-      errors.push(model + ': 応答の解析に失敗（' + (e.message || '不明') + '）');
-      continue;
+    pending = next;
+    if(pending.length && round < MAX_ROUNDS - 1){
+      const sec = Math.round(WAITS[round] / 1000);
+      setStatus('AIが混み合っています。' + sec + '秒待ってからもう一度挑戦します…', 0.5 + round * 0.15);
+      await sleep(WAITS[round]);
     }
   }
+
   const err = new Error('gemini failed');
-  err.userMessage = 'AIでの読み取りに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
-    + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  if(sawTransient){
+    err.userMessage = 'ただいまGoogleのAIが混み合っていて、読み取れませんでした。\n1〜2分ほど待ってから、もう一度「やり直す」を押して撮影してください。\n（アプリの不具合ではありません。混雑は一時的なことがほとんどです）\n\n【詳細】' + errors.slice(-models.length).join(' ／ ')
+      + '\n直らないときは、このエラー文をClaudeに見せてください。';
+  } else {
+    err.userMessage = 'AIでの読み取りに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
+      + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  }
   throw err;
 }
 
-/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする） */
+/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする）
+   新しい順の上位3つに加えて、混雑しにくい安定版・軽量版も予備として後ろに並べる */
 let modelCache = null;
+const STABLE_BACKUPS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
 async function getModelCandidates(){
   if(modelCache) return modelCache;
-  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
@@ -609,7 +662,15 @@ async function getModelCandidates(){
       if(vb !== va) return vb - va;
       return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
     });
-    modelCache = names.length ? names.slice(0, 3) : fallback;
+    const list = names.slice(0, 3);
+    /* 予備：Googleの一覧にあるものだけ後ろに足す（一覧が空のときは固定の予備を使う） */
+    for(const b of STABLE_BACKUPS){
+      if(!list.includes(b) && (names.includes(b) || b.endsWith('-latest'))) list.push(b);
+    }
+    /* 新しい系列が全滅しても粘れるよう、最新でない軽量版も1つ入れる */
+    const oldLite = names.find(n => n.includes('lite') && !list.includes(n));
+    if(oldLite) list.push(oldLite);
+    modelCache = list.length ? list : fallback;
     return modelCache;
   } catch(e){
     return fallback;
@@ -719,15 +780,15 @@ function binarize(canvas){
 
 function cleanOcrText(text){
   return text
-    .replace(/[ \t]+(?=[\u3000-\u9fff\uff00-\uffef])/g, '')
-    .replace(/([\u3000-\u9fff\uff00-\uffef])[ \t]+/g, '$1')
+    .replace(/[ \t]+(?=[　-鿿＀-￯])/g, '')
+    .replace(/([　-鿿＀-￯])[ \t]+/g, '$1')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ');
 }
 
-const KANJI_RE = /[\u3400-\u9fff々〆ヶ]/;
-const isKana = c => /[\u3041-\u3096\u30a1-\u30f6ー]/.test(c);
-const kataToHira = s => s.replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+const KANJI_RE = /[㐀-鿿々〆ヶ]/;
+const isKana = c => /[ぁ-ゖァ-ヶー]/.test(c);
+const kataToHira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
 
 function pushToken(list, surface, reading){
   if(!reading || !KANJI_RE.test(surface)){
