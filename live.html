@@ -186,13 +186,13 @@
     <h1><ruby>ルビ<rt>るび</rt></ruby>カメラ２</h1>
     <p>かざすと ふりがな</p>
   </div>
-  <a class="icon-btn" href="index.html" aria-label="ルビカメラ（写真版）へ" title="写真版へ">①</a>
   <button class="icon-btn" id="btnSettings" aria-label="設定">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
 
 <main>
+  <nav id="pageNav"></nav>
   <div class="settings" id="settings">
     <h2>APIキーの設定</h2>
     <p>ルビカメラ２はAI読み取り専用です。GoogleのAIキー（Gemini APIキー）が必要です。<br>
@@ -243,9 +243,9 @@
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
-<script src="common.js?v=1"></script>
+<script src="common.js?v=2"></script>
 <script>
-const APP_VERSION = 'v1.7';
+const APP_VERSION = 'v1.8';
 
 /* ---------- APIキー（3画面で共通。共通処理は common.js にあります） ---------- */
 (function(){
@@ -278,6 +278,7 @@ $('btnDeleteKey').onclick = () => {
   $('apiKeyInput').value = '';
 };
 setupVersionUI(APP_VERSION);
+setupPageNav('live.html');
 
 /* ---------- 状態 ---------- */
 let stream = null;

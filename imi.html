@@ -72,10 +72,6 @@
     color:var(--ink-soft);border-radius:12px;padding:12px;
     font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;
   }
-  .navlink{
-    display:block;text-align:center;border:1px solid var(--line);background:var(--paper);
-    color:var(--accent);border-radius:12px;padding:12px;font-size:13px;font-weight:500;text-decoration:none;
-  }
 
   /* 設定パネル */
   .settings{
@@ -217,6 +213,7 @@
 </header>
 
 <main>
+  <nav id="pageNav"></nav>
   <span class="mode-chip" id="modeChip">キーの設定が必要です</span>
 
   <div class="settings" id="settings">
@@ -245,8 +242,6 @@
     <button id="btnGallery">写真を選ぶ</button>
     <button id="btnReset">やり直す</button>
   </div>
-  <a class="navlink" href="index.html">ルビカメラ１（ふりがなだけ）へ →</a>
-
   <input type="file" id="fileCamera" accept="image/*" capture="environment" hidden>
   <input type="file" id="fileGallery" accept="image/*" hidden>
 
@@ -292,9 +287,9 @@
   写真と文章はGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=1"></script>
+<script src="common.js?v=2"></script>
 <script>
-const APP_VERSION = 'v1.3';
+const APP_VERSION = 'v1.4';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
@@ -342,6 +337,7 @@ $('btnDeleteKey').onclick = () => {
   updateMode();
 };
 setupVersionUI(APP_VERSION);
+setupPageNav('imi.html');
 
 /* ---------- 基本操作 ---------- */
 $('btnCapture').onclick = () => $('fileCamera').click();

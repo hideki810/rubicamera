@@ -42,6 +42,58 @@ function setupVersionUI(version){
   };
 }
 
+/* ---------- 画面の切り替えバー（3画面共通） ----------
+   各HTMLの <main> の先頭に <nav id="pageNav"></nav> を置き、
+   画面ごとに setupPageNav('自分のファイル名') を呼ぶと、3画面へのボタンが並ぶ。
+   今いる画面は色を反転させて、押せないようにする。 */
+const PAGES = [
+  {file: 'index.html', label: '①ふりがな', note: 'しゃしんから'},
+  {file: 'live.html',  label: '②かざして', note: 'カメラで すぐ'},
+  {file: 'imi.html',   label: '③いみ',     note: 'ことばの いみ'}
+];
+const PAGE_NAV_CSS = `
+.page-nav{display:flex;gap:8px}
+.page-nav > *{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:9px 4px;border:1px solid var(--line);border-radius:12px;
+  background:var(--paper);color:var(--accent);
+  font-size:13px;font-weight:700;line-height:1.25;text-decoration:none;
+}
+.page-nav .d{font-size:10px;font-weight:500;color:var(--ink-soft)}
+.page-nav .current{background:var(--accent);border-color:var(--accent);color:#fff}
+.page-nav .current .d{color:rgba(255,255,255,.85)}
+`;
+function setupPageNav(current){
+  const nav = $('pageNav');
+  if(!nav) return;
+  if(!document.getElementById('pageNavStyle')){
+    const st = document.createElement('style');
+    st.id = 'pageNavStyle';
+    st.textContent = PAGE_NAV_CSS;
+    document.head.appendChild(st);
+  }
+  nav.className = 'page-nav';
+  nav.textContent = '';
+  for(const p of PAGES){
+    const here = (p.file === current);
+    const item = document.createElement(here ? 'span' : 'a');
+    if(here){
+      item.className = 'current';
+      item.setAttribute('aria-current', 'page');
+    } else {
+      item.href = p.file;
+    }
+    const label = document.createElement('span');
+    label.textContent = p.label;
+    const note = document.createElement('span');
+    note.className = 'd';
+    note.textContent = p.note;
+    item.appendChild(label);
+    item.appendChild(note);
+    nav.appendChild(item);
+  }
+}
+
 /* ---------- 混雑・一時的な不調かどうかの判定（再挑戦する価値があるか） ---------- */
 function isTransient(status, detail){
   return [429, 500, 502, 503, 504].includes(status)
