@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>ルビカメラ３（意味しらべ）</title>
+<link rel="icon" type="image/svg+xml" href="icon-3.svg">
+<link rel="apple-touch-icon" href="icon-3-192.png">
+<link rel="manifest" href="manifest-3.json">
+<meta name="theme-color" content="#2f7a5b">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -287,9 +291,9 @@
   写真と文章はGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=2"></script>
+<script src="common.js?v=3"></script>
 <script>
-const APP_VERSION = 'v1.4';
+const APP_VERSION = 'v1.5';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
