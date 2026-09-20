@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ルビカメラ の つかいかた</title>
+<link rel="icon" type="image/svg+xml" href="icon-1.svg">
+<link rel="apple-touch-icon" href="icon-1-192.png">
+<meta name="theme-color" content="#1b2a41">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1b2a41;
+    --ink-soft:#4a5a72;
+    --paper:#ffffff;
+    --bg:#eef1f5;
+    --accent:#2b6cb0;
+    --shu:#b5442e;
+    --line:#d8dde5;
+    --radius:16px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    font-family:'Noto Sans JP',system-ui,sans-serif;
+    background:var(--bg);color:var(--ink);
+    max-width:560px;margin:0 auto;
+    line-height:1.95;
+  }
+  ruby rt{font-size:.48em;color:var(--shu);font-weight:500;line-height:1}
+  header{padding:18px 20px 10px;text-align:center}
+  header h1{font-family:'Zen Maru Gothic',sans-serif;font-size:22px;font-weight:700;letter-spacing:.03em}
+  header p{font-size:12px;color:var(--ink-soft);margin-top:4px}
+  main{padding:0 16px 24px;display:flex;flex-direction:column;gap:14px}
+
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  h2{
+    background:var(--accent);color:#fff;font-size:15px;font-weight:700;
+    padding:7px 14px;border-radius:10px;margin-bottom:12px;
+  }
+  .step{display:flex;gap:10px;align-items:baseline;margin-bottom:10px;font-size:15px}
+  .step:last-child{margin-bottom:0}
+  .step .n{color:var(--accent);font-weight:700;font-size:19px;flex:none}
+  p{font-size:15px}
+  ul{list-style:none}
+  li{position:relative;padding-left:20px;margin-bottom:8px;font-size:15px}
+  li:last-child{margin-bottom:0}
+  li::before{content:"";position:absolute;left:4px;top:13px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .note{background:var(--bg);border-radius:10px;padding:12px 14px;font-size:15px}
+
+  .qrbox{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap}
+  .qrbox img{width:132px;height:132px;display:block;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .qrbox .t{font-size:13px;color:var(--ink-soft)}
+  .url{color:var(--accent);font-weight:700;font-size:13px;word-break:break-all;margin-top:4px}
+
+  .open{
+    display:block;text-align:center;text-decoration:none;
+    background:var(--ink);color:#fff;border-radius:var(--radius);
+    padding:18px;font-family:'Zen Maru Gothic',sans-serif;
+    font-size:18px;font-weight:700;letter-spacing:.05em;
+    box-shadow:0 4px 14px rgba(27,42,65,.25);
+  }
+  .fill{border-top:1px solid var(--line);padding-top:10px;margin-top:4px;font-size:14px;color:var(--ink-soft)}
+  footer{padding:8px 16px 20px;text-align:center;font-size:11px;color:#9aa4b2;line-height:1.8}
+
+  /* 印刷するとA4・1枚の手順書になる */
+  @media print{
+    @page{ size:A4; margin:14mm 16mm; }
+    body{background:#fff;max-width:none;font-size:11.5pt;line-height:1.85}
+    .no-print{display:none !important}
+    main{padding:0;gap:8px}
+    .card{border:none;padding:0;background:none}
+    h2{font-size:12.5pt;padding:5px 12px;margin-bottom:8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .note{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    li::before{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    header{padding:0 0 8px}
+    header h1{font-size:22pt}
+    .qrbox img{width:36mm;height:36mm}
+    p,li,.step,.note{font-size:11pt}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><ruby>ルビ<rt>るび</rt></ruby>カメラ の つかいかた</h1>
+  <p><ruby>写真<rt>しゃしん</rt></ruby>を とると、<ruby>漢字<rt>かんじ</rt></ruby>に ふりがな が つきます</p>
+</header>
+
+<main>
+  <nav id="pageNav" class="no-print"></nav>
+
+  <div class="card">
+    <div class="qrbox">
+      <img src="qr.png" alt="ルビカメラのQRコード">
+      <div>
+        <div class="t">スマホの カメラ で<br>この QRコード を <ruby>読<rt>よ</rt></ruby>みとって ください</div>
+        <div class="url">https://hideki810.github.io/rubicamera/</div>
+      </div>
+    </div>
+  </div>
+
+  <a class="open no-print" href="index.html">ルビカメラ を ひらく</a>
+
+  <div class="card">
+    <h2>つかいかた</h2>
+    <div class="step"><span class="n">①</span><span>QRコード を <ruby>読<rt>よ</rt></ruby>みとって、ひらく</span></div>
+    <div class="step"><span class="n">②</span><span>「カメラで<ruby>撮<rt>と</rt></ruby>る」を おして、<ruby>読<rt>よ</rt></ruby>みたい <ruby>文字<rt>もじ</rt></ruby>を うつす</span></div>
+    <div class="step"><span class="n">③</span><span>ふりがな つきで <ruby>出<rt>で</rt></ruby>てきます。「<ruby>文字<rt>もじ</rt></ruby> <ruby>大<rt>だい</rt></ruby>」を おすと、もっと <ruby>大<rt>おお</rt></ruby>きくなります</span></div>
+  </div>
+
+  <div class="card">
+    <h2>つぎから すぐ ひらくには</h2>
+    <p>Chrome の メニュー（⋮）→「ホーム<ruby>画面<rt>がめん</rt></ruby>に <ruby>追加<rt>ついか</rt></ruby>」を おしてください。<br>
+    アイコンが できて、<ruby>次<rt>つぎ</rt></ruby>から ワンタッチで ひらけます。</p>
+  </div>
+
+  <div class="card">
+    <h2>しって おいて ほしい こと</h2>
+    <ul>
+      <li>インストール は いりません。<ruby>無料<rt>むりょう</rt></ruby>です。</li>
+      <li><ruby>写真<rt>しゃしん</rt></ruby>は スマホの <ruby>外<rt>そと</rt></ruby>に <ruby>送<rt>おく</rt></ruby>られません。<ruby>安心<rt>あんしん</rt></ruby>して つかえます。</li>
+      <li>はじめて ひらく ときは、Wi-Fi の ある ところで。じゅんびに <ruby>少<rt>すこ</rt></ruby>し <ruby>時間<rt>じかん</rt></ruby>が かかります。</li>
+      <li><ruby>読<rt>よ</rt></ruby>みまちがい が あります。<ruby>大事<rt>だいじ</rt></ruby>な <ruby>書類<rt>しょるい</rt></ruby>は、もとの <ruby>文字<rt>もじ</rt></ruby>も たしかめて ください。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>うまく うごかない とき</h2>
+    <div class="note"><ruby>画面<rt>がめん</rt></ruby>が <ruby>古<rt>ふる</rt></ruby>いまま の ときは、<ruby>右上<rt>みぎうえ</rt></ruby>の <ruby>歯車<rt>はぐるま</rt></ruby>マーク → 「<ruby>最新版<rt>さいしんばん</rt></ruby>に <ruby>更新<rt>こうしん</rt></ruby>する」を おしてください。</div>
+    <p class="fill"><ruby>問<rt>と</rt></ruby>い<ruby>合<rt>あ</rt></ruby>わせ：　　　　　　　　　　　　　　　　</p>
+  </div>
+</main>
+
+<footer class="no-print">
+  この ページを そのまま <ruby>印刷<rt>いんさつ</rt></ruby>すると、A4・1<ruby>枚<rt>まい</rt></ruby>の <ruby>手順書<rt>てじゅんしょ</rt></ruby>に なります
+</footer>
+
+<script src="common.js?v=3"></script>
+<script>
+setupPageNav('tsukaikata.html');   /* この画面はアプリではないので、3つとも押せる状態にする */
+/* setupPageNav は class を入れ替えるので、印刷で隠す指定はここで付け直す */
+$('pageNav').classList.add('no-print');
+</script>
+</body>
+</html>
