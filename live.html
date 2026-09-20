@@ -245,7 +245,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 const mem = {};
 const store = {
   get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
@@ -258,7 +258,7 @@ function apiKey(){ return (store.get('rubiKey') || '').trim(); }
 function normalizeKey(v){
   let s = (v || '');
   s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
-  s = s.replace(/[\s 　​-‍﻿]/g, '');
+  s = s.replace(/[\s 　​-‍﻿]/g, '');
   const u = s.match(/[#&]k=([^&#?]+)/);
   if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
   return s;
@@ -318,7 +318,8 @@ const CHANGE_T = 10;          // これ以上の差なら「新しい場面」�
 const UNFREEZE_T = 14;        // 固定表示を解除する動きの大きさ
 const MIN_INTERVAL = 4000;    // 読み取りの最短間隔（無料キーの回数制限対策）
 const FREEZE_MIN = 1500;      // 結果表示から最低これだけの間は消さない
-let backoffUntil = 0;         // 混雑（429）時はこの時刻まで読み取りを休止
+let backoffUntil = 0;         // 混雑（429・503）時はこの時刻まで読み取りを休止
+let busyStreak = 0;           // 混雑が続いた回数（待ち時間を少しずつ延ばす）
 let unsteadyTicks = 0;        // 揺れ続けている回数（長く続いたら揺れていても読む）
 let frozenAt = 0;             // 結果を表示した時刻
 let unfreezeStreak = 0;       // 解除判定が連続した回数（1回の揺れでは消さない）
@@ -517,6 +518,7 @@ async function doScan(manual){
   try {
     const result = await callGemini(frame.dataUrl.split(',')[1]);
     if(!running || mySeq !== scanSeq) return;
+    busyStreak = 0;
     if(!result.length){
       lastScanEmpty = true;
       state = 'watching';
@@ -540,7 +542,7 @@ async function doScan(manual){
     console.error(err);
     state = 'watching';
     if(err.quota){
-      /* 混雑（回数制限）：赤いエラーは出さず、待ってから自動で同じ場面を読み直す */
+      /* 混雑（回数制限・サーバー混雑）：赤いエラーは出さず、待ってから自動で同じ場面を読み直す */
       lastScanSample = null;
       if(err.quota.daily){
         backoffUntil = Date.now() + 120 * 1000;
@@ -586,7 +588,7 @@ async function callGemini(base64){
 
   const models = await getModelCandidates();
   const errors = [];
-  let quotaHit = false, quotaDaily = false, retryDelaySec = 0;
+  let quotaHit = false, quotaDaily = false, rateLimited = false, retryDelaySec = 0;
   const deadline = Date.now() + SCAN_DEADLINE;
   for(const model of models){
     const remain = deadline - Date.now();
@@ -643,14 +645,20 @@ async function callGemini(base64){
         e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
         throw e;
       }
-      if(res.status === 429 || /quota|RESOURCE_EXHAUSTED/i.test(detail)){
-        /* 回数制限：モデルごとに枠が別なので、次の候補モデルで再挑戦する */
+      const isRate = res.status === 429 || /quota|RESOURCE_EXHAUSTED/i.test(detail);
+      const isBusy = [500, 502, 503, 504].includes(res.status)
+        || /high demand|overloaded|UNAVAILABLE|try again later/i.test(detail);
+      if(isRate || isBusy){
+        /* 回数制限（429）やサーバー混雑（503など）：モデルごとに状況が別なので、次の候補モデルで再挑戦する */
         quotaHit = true;
-        if(/perday|per day/i.test(detail)) quotaDaily = true;
-        const ds = JSON.stringify(eb?.error?.details || '') + ' ' + detail;
-        const rm = ds.match(/retryDelay[^0-9]*(\d+(?:\.\d+)?)/i) || ds.match(/retry in (\d+(?:\.\d+)?)/i);
-        if(rm) retryDelaySec = Math.max(retryDelaySec, Math.ceil(parseFloat(rm[1])));
-        errors.push(model + ': 混雑（429）');
+        if(isRate){
+          rateLimited = true;
+          if(/perday|per day/i.test(detail)) quotaDaily = true;
+          const ds = JSON.stringify(eb?.error?.details || '') + ' ' + detail;
+          const rm = ds.match(/retryDelay[^0-9]*(\d+(?:\.\d+)?)/i) || ds.match(/retry in (\d+(?:\.\d+)?)/i);
+          if(rm) retryDelaySec = Math.max(retryDelaySec, Math.ceil(parseFloat(rm[1])));
+        }
+        errors.push(model + ': 混雑（' + res.status + '）');
         continue;
       }
       errors.push(model + ': ' + detail);
@@ -674,7 +682,13 @@ async function callGemini(base64){
   }
   if(quotaHit){
     const e = new Error('quota');
-    e.quota = {daily: quotaDaily, retrySec: Math.min(120, retryDelaySec || 45)};
+    busyStreak++;
+    /* 回数制限はGoogleの指示の秒数（なければ45秒）、サーバー混雑は短めから始めて少しずつ延ばす */
+    const busyWaits = [8, 15, 30, 45];
+    const retrySec = rateLimited
+      ? Math.min(120, retryDelaySec || 45)
+      : busyWaits[Math.min(busyStreak - 1, busyWaits.length - 1)];
+    e.quota = {daily: quotaDaily, retrySec};
     if(quotaDaily){
       e.userMessage = '今日の無料の読み取り回数を使い切った可能性があります。時間をおいても直らない場合は、明日（日本時間の夕方ごろにリセット）もう一度お試しください。';
     }
@@ -686,11 +700,13 @@ async function callGemini(base64){
   throw err;
 }
 
-/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（ルビカメラ①と同じ方式） */
+/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（ルビカメラ①と同じ方式）
+   新しい順の上位3つに加えて、混雑しにくい安定版・軽量版も予備として後ろに並べる */
 let modelCache = null;
+const STABLE_BACKUPS = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash'];
 async function getModelCandidates(){
   if(modelCache) return modelCache;
-  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
@@ -709,7 +725,11 @@ async function getModelCandidates(){
       if(vb !== va) return vb - va;
       return (a.includes('lite') ? 0 : 1) - (b.includes('lite') ? 0 : 1);
     });
-    modelCache = names.length ? names.slice(0, 3) : fallback;
+    const list = names.slice(0, 3);
+    for(const b of STABLE_BACKUPS){
+      if(!list.includes(b) && (names.includes(b) || b.endsWith('-latest'))) list.push(b);
+    }
+    modelCache = list.length ? list : fallback;
     return modelCache;
   } catch(e){
     return fallback;
