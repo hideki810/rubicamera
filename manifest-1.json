@@ -1,0 +1,33 @@
+{
+  "id": "rubicamera-1",
+  "name": "ルビカメラ",
+  "short_name": "ルビカメラ",
+  "description": "写真を撮ると、漢字にふりがなを付けて読みやすくします。",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ja",
+  "background_color": "#eef1f5",
+  "theme_color": "#1b2a41",
+  "icons": [
+    {
+      "src": "icon-1-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-1-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-1-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

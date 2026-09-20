@@ -16,6 +16,15 @@ const store = {
   del(k){ try{ localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
 };
 
+/* ---------- ホーム画面に「アプリとして」追加できるようにする ----------
+   sw.js はファイルを保存しない（キャッシュしない）ので、
+   古い画面が端末に残ることはない。 */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
 /* ---------- APIキー（3画面で共通の保存場所 'rubiKey'） ---------- */
 function apiKey(){ return (store.get('rubiKey') || '').trim(); }
 /* 貼り付け内容のよくある間違いを自動修正してキーだけ取り出す */

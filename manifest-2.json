@@ -1,0 +1,33 @@
+{
+  "id": "rubicamera-2",
+  "name": "ルビカメラ２",
+  "short_name": "ルビカメラ２",
+  "description": "カメラをかざすと、その場でふりがなが付きます。",
+  "start_url": "live.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ja",
+  "background_color": "#eef1f5",
+  "theme_color": "#2b6cb0",
+  "icons": [
+    {
+      "src": "icon-2-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-2-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-2-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
