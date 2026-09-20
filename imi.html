@@ -294,10 +294,11 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const APP_VERSION = 'v1.1';
+const APP_VERSION = 'v1.2';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const mem = {};
 const store = {
@@ -311,7 +312,7 @@ function apiKey(){ return (store.get('rubiKey') || '').trim(); }
 function normalizeKey(v){
   let s = (v || '');
   s = s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
-  s = s.replace(/[\s　​-‍﻿]/g, '');
+  s = s.replace(/[\s\u00a0\u3000\u200b-\u200d\ufeff]/g, '');
   const u = s.match(/[#&]k=([^&#?]+)/);
   if(u){ try { s = decodeURIComponent(u[1]); } catch(e){ s = u[1]; } }
   return s;
@@ -473,7 +474,8 @@ async function readImage(file){
 
   const {json, truncated} = await callGemini({
     parts: [{inline_data: {mime_type: mediaType, data: base64}}, {text: prompt}],
-    salvageKey: 'segments'
+    salvageKey: 'segments',
+    onWait: msg => setStatus(msg, 0.4)
   });
 
   segments = Array.isArray(json.segments) ? json.segments : [];
@@ -490,6 +492,7 @@ async function readImage(file){
 /* ---------- ②本文 → むずかしい言葉と意味 ---------- */
 async function findWords(){
   const text = plainText();
+  $('words').innerHTML = '';
   $('wordsWrap').style.display = 'flex';
   $('wordsSpin').style.display = 'block';
   setStatus('ことばの意味を調べています…', 0.7);
@@ -517,7 +520,8 @@ ${text.slice(0, 2500)}
   try {
     const {json} = await callGemini({
       parts: [{text: prompt}],
-      salvageKey: 'words'
+      salvageKey: 'words',
+      onWait: msg => setStatus(msg, 0.8)
     });
     const words = Array.isArray(json.words) ? json.words : [];
     $('wordsSpin').style.display = 'none';
@@ -533,10 +537,23 @@ ${text.slice(0, 2500)}
     $('words').innerHTML = '';
     const card = document.createElement('div');
     card.className = 'word-card';
-    card.innerHTML = '<div class="m"></div>';
-    card.querySelector('.m').textContent = '意味しらべに失敗しました。文章のふりがなは上に出ています。\n【詳細】' + (err.userMessage || err.message || '不明');
-    card.querySelector('.m').style.whiteSpace = 'pre-line';
-    card.querySelector('.m').style.color = 'var(--shu)';
+    const m = document.createElement('div');
+    m.className = 'm';
+    m.style.whiteSpace = 'pre-line';
+    m.style.color = 'var(--shu)';
+    if(err.transient){
+      m.textContent = '意味しらべができませんでした。ただいまGoogleのAIが混み合っています（アプリの不具合ではありません）。\n文章のふりがなは上に出ています。少し待って「もう一度しらべる」を押してください。';
+    } else {
+      m.textContent = '意味しらべに失敗しました。文章のふりがなは上に出ています。\n【詳細】' + (err.userMessage || err.message || '不明');
+    }
+    card.appendChild(m);
+    if(err.transient){
+      const btn = document.createElement('button');
+      btn.className = 'find';
+      btn.textContent = 'もう一度しらべる';
+      btn.onclick = () => { findWords(); };
+      card.appendChild(btn);
+    }
     $('words').appendChild(card);
   }
 }
@@ -606,13 +623,24 @@ ${plainText().slice(0, 1500)}
 - この文章での意味（文脈に合う意味）を説明する`;
 
   try {
-    const {json} = await callGemini({parts: [{text: prompt}], salvageKey: null});
+    const {json} = await callGemini({
+      parts: [{text: prompt}],
+      salvageKey: null,
+      onWait: msg => {
+        if(seq !== lookupSeq) return;
+        const mEl = card.querySelector('.m');
+        if(mEl) mEl.textContent = msg;
+      }
+    });
     if(seq !== lookupSeq) return;
     const data = (json && Array.isArray(json.words)) ? (json.words[0] || {}) : json;
     updateWordCard(card, {w: word, r: data.r || null, m: Array.isArray(data.m) ? data.m : [{t: '（説明を受け取れませんでした）', r: null}]});
   } catch(err){
     if(seq !== lookupSeq) return;
-    updateWordCard(card, {w: word, r: null, m: [{t: '調べられませんでした：' + (err.userMessage || err.message || '不明'), r: null}]}, true);
+    const msg = err.transient
+      ? 'ただいまGoogleのAIが混み合っていて、調べられませんでした。少し待ってから、もう一度言葉を選んでください。'
+      : '調べられませんでした：' + (err.userMessage || err.message || '不明');
+    updateWordCard(card, {w: word, r: null, m: [{t: msg, r: null}]}, true);
   }
 };
 
@@ -716,78 +744,110 @@ function highlightInResult(word){
 }
 
 /* ---------- Gemini 呼び出し ---------- */
-async function callGemini({parts, salvageKey}){
+/* 混雑・一時的な不具合かどうか（この場合は待ってやり直す価値がある） */
+function isTransient(status, detail){
+  return [429, 500, 502, 503, 504].includes(status)
+    || /high demand|overloaded|UNAVAILABLE|try again later|RESOURCE_EXHAUSTED|quota/i.test(detail || '');
+}
+
+/* 1つのモデルに1回問い合わせる。戻り値：
+   {ok:true, json, truncated}
+   {ok:false, retry:true|false, msg}  ← retry=true は混雑などで再挑戦の価値あり */
+async function tryModel(model, parts, salvageKey){
+  let res;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          contents: [{parts}],
+          generationConfig: {responseMimeType: 'application/json'}
+        })
+      }
+    );
+  } catch(e){
+    return {ok: false, retry: true, msg: model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')'};
+  }
+
+  if(!res.ok){
+    let detail = 'HTTP ' + res.status;
+    try {
+      const eb = await res.json();
+      if(eb.error?.message) detail = eb.error.message;
+    } catch(e){}
+    if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
+      const e = new Error('bad key');
+      e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
+      throw e;
+    }
+    if(/Expected OAuth|UNAUTHENTICATED|invalid authentication/i.test(detail)){
+      const e = new Error('key not recognized');
+      e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
+      throw e;
+    }
+    return {ok: false, retry: isTransient(res.status, detail), msg: model + ': HTTP ' + res.status + ' ' + detail.slice(0, 80)};
+  }
+
+  let data;
+  try { data = await res.json(); }
+  catch(e){ return {ok: false, retry: true, msg: model + ': 応答を読めませんでした'}; }
+
+  const cand = data.candidates?.[0];
+  const finish = cand?.finishReason || '';
+  const text = (cand?.content?.parts || []).map(p => p.text || '').join('');
+
+  try {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if(start < 0 || end <= start) throw new Error('no json');
+    return {ok: true, json: JSON.parse(text.slice(start, end + 1)), truncated: finish === 'MAX_TOKENS'};
+  } catch(parseErr){
+    /* 途中で切れた応答でも、読めた分だけ拾う */
+    const salvaged = salvageKey ? salvageArray(text, salvageKey) : null;
+    if(salvaged && salvaged.length){
+      return {ok: true, json: {[salvageKey]: salvaged}, truncated: true};
+    }
+    return {ok: false, retry: false, msg: model + ': 応答の解析に失敗（finishReason: ' + (finish || '不明') + '、文字数: ' + text.length + '）'};
+  }
+}
+
+/* 混雑のときは、待ってから最大3周まで、別のモデルも順に試して粘る */
+async function callGemini({parts, salvageKey, onWait}){
   const models = await getModelCandidates();
   const errors = [];
-  for(const model of models){
-    let res;
-    try {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
-        {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            contents: [{parts}],
-            generationConfig: {responseMimeType: 'application/json'}
-          })
-        }
-      );
-    } catch(e){
-      errors.push(model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')');
-      continue;
+  const MAX_ROUNDS = 3;
+  const WAITS = [3000, 6000];
+  let pending = models.slice();
+  let sawTransient = false;
+
+  for(let round = 0; round < MAX_ROUNDS && pending.length; round++){
+    const next = [];
+    for(const model of pending){
+      if(round > 0 && onWait) onWait('AIが混み合っています。もう一度挑戦中…（' + (round + 1) + '/' + MAX_ROUNDS + '回目）');
+      const r = await tryModel(model, parts, salvageKey);
+      if(r.ok) return {json: r.json, truncated: r.truncated};
+      errors.push(r.msg);
+      if(r.retry){ sawTransient = true; next.push(model); }
     }
-
-    if(!res.ok){
-      let detail = 'HTTP ' + res.status;
-      try {
-        const eb = await res.json();
-        if(eb.error?.message) detail = eb.error.message;
-      } catch(e){}
-      if(/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(detail)){
-        const e = new Error('bad key');
-        e.userMessage = 'APIキーが正しくないようです。右上の歯車ボタンからキーを確認してください。';
-        throw e;
-      }
-      if(/Expected OAuth|UNAUTHENTICATED|invalid authentication/i.test(detail)){
-        const e = new Error('key not recognized');
-        e.userMessage = 'APIキーが正しく保存されていないようです。右上の歯車ボタン→「キーを削除」を押したあと、配布リンク（#k=付きのURL）をもう一度開くか、キーを貼り付け直してください。';
-        throw e;
-      }
-      if(res.status === 429){
-        errors.push(model + ': 無料枠の上限（しばらく待つか、明日お試しください）');
-        continue;
-      }
-      errors.push(model + ': ' + detail);
-      continue;
-    }
-
-    let data;
-    try { data = await res.json(); }
-    catch(e){ errors.push(model + ': 応答を読めませんでした'); continue; }
-
-    const cand = data.candidates?.[0];
-    const finish = cand?.finishReason || '';
-    const text = (cand?.content?.parts || []).map(p => p.text || '').join('');
-
-    try {
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      if(start < 0 || end <= start) throw new Error('no json');
-      return {json: JSON.parse(text.slice(start, end + 1)), truncated: finish === 'MAX_TOKENS'};
-    } catch(parseErr){
-      /* 途中で切れた応答でも、読めた分だけ拾う */
-      const salvaged = salvageKey ? salvageArray(text, salvageKey) : null;
-      if(salvaged && salvaged.length){
-        return {json: {[salvageKey]: salvaged}, truncated: true};
-      }
-      errors.push(model + ': 応答の解析に失敗（finishReason: ' + (finish || '不明') + '、文字数: ' + text.length + '）');
-      continue;
+    pending = next;
+    if(pending.length && round < MAX_ROUNDS - 1){
+      const sec = Math.round(WAITS[round] / 1000);
+      if(onWait) onWait('AIが混み合っています。' + sec + '秒待ってからもう一度挑戦します…');
+      await sleep(WAITS[round]);
     }
   }
+
   const err = new Error('gemini failed');
-  err.userMessage = 'AIへの問い合わせに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
-    + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  if(sawTransient){
+    err.transient = true;
+    err.userMessage = 'ただいまGoogleのAIが混み合っていて、うまくいきませんでした。\n1〜2分ほど待ってから、もう一度お試しください。\n（アプリの不具合ではありません）\n\n【詳細】' + errors.slice(-models.length).join(' ／ ')
+      + '\n直らないときは、このエラー文をClaudeに見せてください。';
+  } else {
+    err.userMessage = 'AIへの問い合わせに失敗しました。\n【詳細】' + (errors.join(' ／ ') || '不明なエラー')
+      + '\nこのエラー文をClaudeに見せてもらえれば原因を調べられます。';
+  }
   throw err;
 }
 
@@ -815,11 +875,13 @@ function salvageArray(text, key){
   return null;
 }
 
-/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする） */
+/* 使えるAIモデルをGoogleに問い合わせて自動で選ぶ（モデル名変更に強くする）
+   新しい順の上位3つに加えて、混雑しにくい安定版・軽量版も予備として後ろに並べる */
 let modelCache = null;
+const STABLE_BACKUPS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
 async function getModelCandidates(){
   if(modelCache) return modelCache;
-  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
@@ -837,7 +899,13 @@ async function getModelCandidates(){
       if(vb !== va) return vb - va;
       return (a.includes('lite') ? 1 : 0) - (b.includes('lite') ? 1 : 0);
     });
-    modelCache = names.length ? names.slice(0, 3) : fallback;
+    const list = names.slice(0, 3);
+    for(const b of STABLE_BACKUPS){
+      if(!list.includes(b) && (names.includes(b) || b.endsWith('-latest'))) list.push(b);
+    }
+    const oldLite = names.find(n => n.includes('lite') && !list.includes(n));
+    if(oldLite) list.push(oldLite);
+    modelCache = list.length ? list : fallback;
     return modelCache;
   } catch(e){
     return fallback;
