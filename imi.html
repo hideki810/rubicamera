@@ -264,8 +264,10 @@
       <span class="label">読み取り結果</span>
       <button id="btnSize">文字 大</button>
       <button id="btnCopy">コピー</button>
+      <button id="btnNotebook">NotebookLMへ</button>
     </div>
     <div class="result" id="result"></div>
+    <div class="nb-note" id="nbNote"></div>
     <div class="copy-note">分からない言葉を指でなぞって選ぶと、その言葉の意味を調べられます<br>読み間違いがあることがあります。大事な文書は元の文字も確認してください</div>
   </div>
 
@@ -291,9 +293,9 @@
   写真と文章はGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=3"></script>
+<script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
@@ -357,7 +359,8 @@ $('btnSize').onclick = () => {
   $('btnSize').classList.toggle('active', large);
 };
 
-$('btnCopy').onclick = async () => {
+/* コピー用の文章（本文＋調べた言葉の意味）。NotebookLM へ送るときも同じものを使う */
+function resultText(){
   const lines = [];
   lines.push(segments.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join(''));
   if(wordList.length){
@@ -367,8 +370,13 @@ $('btnCopy').onclick = async () => {
       lines.push(`${w.w}（${w.r || ''}）：` + w.m.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join(''));
     }
   }
+  return lines.join('\n');
+}
+setupNotebookLM(resultText);
+
+$('btnCopy').onclick = async () => {
   try {
-    await navigator.clipboard.writeText(lines.join('\n'));
+    await navigator.clipboard.writeText(resultText());
     $('btnCopy').textContent = 'コピーしました';
     setTimeout(() => $('btnCopy').textContent = 'コピー', 1500);
   } catch(e){
@@ -385,6 +393,7 @@ function resetAll(){
   $('error').style.display = 'none';
   $('notice').style.display = 'none';
   $('resultWrap').style.display = 'none';
+  $('nbNote').classList.remove('show');
   $('wordsWrap').style.display = 'none';
   $('words').innerHTML = '';
   $('wordsSpin').style.display = 'none';

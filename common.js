@@ -103,6 +103,59 @@ function setupPageNav(current){
   }
 }
 
+/* ---------- NotebookLM（Google のAIノート）への受け渡し（3画面共通） ----------
+   NotebookLM には、ブラウザから直接書き込める公開の仕組み（API）がない。
+   そのため「読み取った文章をコピー → NotebookLM を新しいタブで開く」までを1回のボタンで行い、
+   利用者には「ソースを追加 → コピーしたテキスト」に貼り付けてもらう。
+   各HTMLの結果欄に <button id="btnNotebook"> と <div id="nbNote"> を置き、
+   setupNotebookLM(文章を作る関数) を呼ぶと使えるようになる。 */
+const NOTEBOOKLM_URL = 'https://notebooklm.google.com/';
+const NB_NOTE_CSS = `
+.nb-note{
+  display:none;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius);padding:12px 14px;
+  font-size:13px;line-height:1.7;color:var(--ink);
+}
+.nb-note.show{display:block}
+.nb-note b{color:var(--accent)}
+.nb-note a{color:var(--accent);font-weight:700}
+`;
+function setupNotebookLM(getText){
+  const btn = $('btnNotebook');
+  const note = $('nbNote');
+  if(!btn) return;
+  if(!document.getElementById('nbNoteStyle')){
+    const st = document.createElement('style');
+    st.id = 'nbNoteStyle';
+    st.textContent = NB_NOTE_CSS;
+    document.head.appendChild(st);
+  }
+  btn.onclick = async () => {
+    const body = (getText() || '').trim();
+    if(!body) return;
+    const d = new Date();
+    const title = `ルビカメラで読み取った文章（${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${d.getHours()}時${String(d.getMinutes()).padStart(2,'0')}分）`;
+    const text = title + '\n\n' + body;
+    /* コピーは「押した直後」に始めないと、タブが切り替わって失敗することがある。
+       新しいタブも、押した直後に開かないとブロックされることがあるので、待たずに開く */
+    let copying;
+    try { copying = navigator.clipboard.writeText(text); } catch(e){ copying = Promise.reject(e); }
+    window.open(NOTEBOOKLM_URL, '_blank', 'noopener');
+    let copied = true;
+    try { await copying; } catch(e){ copied = false; }
+    if(note){
+      note.innerHTML = copied
+        ? '<b>文章をコピーしました。</b><br>NotebookLM の画面で<br>①ノートブックを開く（または「新規作成」）<br>②「ソースを追加」→「コピーしたテキスト」<br>③貼り付けて「挿入」<br>の順に進めてください。<br>NotebookLM が開かないときは <a href="' + NOTEBOOKLM_URL + '" target="_blank" rel="noopener">ここを押して開く</a>'
+        : '<b>コピーできませんでした。</b><br>結果の文字を長押しして選び、コピーしてから NotebookLM に貼り付けてください。<br><a href="' + NOTEBOOKLM_URL + '" target="_blank" rel="noopener">NotebookLM を開く</a>';
+      note.classList.add('show');
+    }
+    if(copied){
+      btn.textContent = 'コピーしました';
+      setTimeout(() => btn.textContent = 'NotebookLMへ', 1500);
+    }
+  };
+}
+
 /* ---------- 混雑・一時的な不調かどうかの判定（再挑戦する価値があるか） ---------- */
 function isTransient(status, detail){
   return [429, 500, 502, 503, 504].includes(status)

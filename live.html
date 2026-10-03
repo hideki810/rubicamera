@@ -159,7 +159,7 @@
 
   /* 結果パネル */
   .result-wrap{display:none;flex-direction:column;gap:8px}
-  .result-tools{display:flex;gap:8px;align-items:center}
+  .result-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .result-tools .label{font-size:12px;color:var(--ink-soft);margin-right:auto}
   .result-tools button{
     border:1px solid var(--line);background:var(--paper);
@@ -237,8 +237,10 @@
       <span class="label">読み取り結果</span>
       <button id="btnSize">文字 大</button>
       <button id="btnCopy">コピー</button>
+      <button id="btnNotebook">NotebookLMへ</button>
     </div>
     <div class="result" id="result"></div>
+    <div class="nb-note" id="nbNote"></div>
   </div>
 </main>
 
@@ -247,9 +249,9 @@
   読み間違いがあることがあります。大事な文書は元の文字も確認してください
 </footer>
 
-<script src="common.js?v=3"></script>
+<script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v1.9';
+const APP_VERSION = 'v2.0';
 
 /* ---------- APIキー（3画面で共通。共通処理は common.js にあります） ---------- */
 (function(){
@@ -774,10 +776,16 @@ $('btnSize').onclick = () => {
   $('btnSize').classList.toggle('active', large);
 };
 
-$('btnCopy').onclick = async () => {
-  const text = lines
+/* コピー用の文章（「漢字（かんじ）」の形式）。NotebookLM へ送るときも同じものを使う */
+function resultText(){
+  return lines
     .map(line => line.segs.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join(''))
     .join('\n');
+}
+setupNotebookLM(resultText);
+
+$('btnCopy').onclick = async () => {
+  const text = resultText();
   try {
     await navigator.clipboard.writeText(text);
     $('btnCopy').textContent = 'コピーしました';

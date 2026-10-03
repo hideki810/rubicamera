@@ -219,8 +219,10 @@
       <span class="label">読み取り結果</span>
       <button id="btnSize">文字 大</button>
       <button id="btnCopy">コピー</button>
+      <button id="btnNotebook">NotebookLMへ</button>
     </div>
     <div class="result" id="result"></div>
+    <div class="nb-note" id="nbNote"></div>
     <div class="copy-note">コピーすると「漢字（かんじ）」の形式になります<br>読み間違いがあることがあります。大事な文書は元の文字も確認してください</div>
   </div>
 </main>
@@ -230,9 +232,9 @@
   高精度モードでは写真がGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=3"></script>
+<script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v6.9';
+const APP_VERSION = 'v7.0';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -408,8 +410,14 @@ $('btnSize').onclick = () => {
   $('btnSize').classList.toggle('active', large);
 };
 
+/* コピー用の文章（「漢字（かんじ）」の形式）。NotebookLM へ送るときも同じものを使う */
+function resultText(){
+  return segments.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join('');
+}
+setupNotebookLM(resultText);
+
 $('btnCopy').onclick = async () => {
-  const text = segments.map(s => s.r ? `${s.t}（${s.r}）` : s.t).join('');
+  const text = resultText();
   try {
     await navigator.clipboard.writeText(text);
     $('btnCopy').textContent = 'コピーしました';
@@ -425,6 +433,7 @@ function resetAll(){
   $('status').style.display = 'none';
   $('error').style.display = 'none';
   $('resultWrap').style.display = 'none';
+  $('nbNote').classList.remove('show');
   $('fileCamera').value = '';
   $('fileGallery').value = '';
 }

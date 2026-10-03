@@ -45,6 +45,8 @@
   - 今いる画面は色を反転させ、リンクにしない
   - ボタンの文字や並び順を変えるときは `PAGES` を直せば3画面に反映される
 - `KANJI_RE` … 漢字を含むかの判定
+- `setupNotebookLM(文章を作る関数)` … 「NotebookLMへ」ボタン（`btnNotebook`）の設定。読み取った文章をコピーし、NotebookLM を新しいタブで開き、貼り付け方を `nbNote` に表示する
+  - NotebookLM には一般向けの書き込みAPIがないため、「コピー＋開く＋手順の案内」で連携している
 - `toBase64()` / `canvasBase64()` / `fileToBase64()` … 写真を AI に送れる形にする
 
 各 HTML の中に残っているもの（その画面だけの処理）：
