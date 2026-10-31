@@ -109,6 +109,21 @@ function isTransient(status, detail){
     || /high demand|overloaded|UNAVAILABLE|try again later|RESOURCE_EXHAUSTED|quota/i.test(detail || '');
 }
 
+/* ---------- 時間制限つきの通信 ----------
+   端末やネットワークによっては、Googleからの返事が来ないまま永遠に待ち続けることがある。
+   決めた秒数を過ぎたら打ち切り、「タイムアウト」として扱う。 */
+function timedFetch(url, opts, ms){
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, Object.assign({}, opts || {}, {signal: ctrl.signal}))
+    .finally(() => clearTimeout(t));
+}
+/* 通信エラーを人に見せる文に直す（タイムアウトは分かりやすく） */
+function netErrText(e, ms){
+  if(e && e.name === 'AbortError') return 'タイムアウト（' + Math.round(ms / 1000) + '秒待っても返事なし）';
+  return ((e && e.name) || '') + ' ' + ((e && e.message) || '通信不可');
+}
+
 /* ---------- 使えるAIモデルをGoogleに問い合わせて自動で選ぶ ----------
    新しい順の上位3つに加えて、混雑しにくい安定版・軽量版も予備として後ろに並べる。
    options.preferLite = true（ルビカメラ２）… 速さ優先で、同じ世代なら軽量版（lite）を先に使う */
@@ -121,8 +136,9 @@ async function getModelCandidates(options){
   if(modelCache) return modelCache;
   const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`
+    const res = await timedFetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey())}&pageSize=200`,
+      {}, 10000
     );
     if(!res.ok) return fallback;
     const data = await res.json();

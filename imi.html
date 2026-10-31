@@ -291,9 +291,9 @@
   写真と文章はGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=3"></script>
+<script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 let segments = [];          /* 本文（ルビ用に区切ったもの） */
 let wordList = [];          /* 表示中のことばカード */
 let lookupSeq = 0;          /* 古い結果を無視するための通し番号 */
@@ -728,7 +728,7 @@ function highlightInResult(word){
 async function tryModel(model, parts, salvageKey){
   let res;
   try {
-    res = await fetch(
+    res = await timedFetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
       {
         method: 'POST',
@@ -737,7 +737,8 @@ async function tryModel(model, parts, salvageKey){
           contents: [{parts}],
           generationConfig: {responseMimeType: 'application/json'}
         })
-      }
+      },
+      60000   /* 返事が来ないまま止まらないよう60秒で打ち切る */
     );
   } catch(e){
     return {ok: false, retry: true, msg: model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')'};

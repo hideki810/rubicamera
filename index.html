@@ -230,9 +230,9 @@
   高精度モードでは写真がGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=3"></script>
+<script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v6.9';
+const APP_VERSION = 'v6.10';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -286,11 +286,13 @@ setupPageNav('index.html');
 async function testConnection(){
   const out = $('testResult');
   out.style.display = 'block';
-  out.textContent = 'テスト中…（10秒ほどかかります）';
+  out.textContent = 'テスト中…（長くても1分ほどで終わります）';
   const k = normalizeKey($('apiKeyInput').value) || apiKey();
   if(!k){ out.textContent = 'キーが未設定です。上の欄にキーを貼り付けてから押してください。'; return; }
   /* スクショだけで「古い画面のまま動いていないか」を判断できるよう、必ず先頭に出す */
   const lines = ['【この画面のバージョン】' + APP_VERSION];
+  /* 途中経過をその場で表示する（どこで止まっているか分かるように） */
+  const show = (now) => { out.textContent = lines.join('\n') + (now ? '\n…' + now : ''); };
 
   // ⓪ 保存されているキーの形式チェック
   if(keyLooksValid(k)){
@@ -300,8 +302,9 @@ async function testConnection(){
   }
 
   // ① 鍵とネットの確認（軽い問い合わせ）
+  show('① 鍵とネットを確認中');
   try {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(k)}&pageSize=5`);
+    const r = await timedFetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(k)}&pageSize=5`, {}, 10000);
     if(r.ok){
       lines.push('① 鍵とネットの確認：OK');
     } else {
@@ -310,30 +313,33 @@ async function testConnection(){
       lines.push('① 鍵とネットの確認：NG → ' + msg);
     }
   } catch(e){
-    lines.push('① 鍵とネットの確認：NG → ' + (e.name || '') + ' ' + (e.message || '通信不可'));
+    lines.push('① 鍵とネットの確認：NG → ' + netErrText(e, 10000));
   }
 
   // ② AIへの小さな送信テスト（混雑していたら別のモデルも順に試す）
+  show('② AIに送信テスト中');
   try {
     const models = await getModelCandidates();
     let okModel = null;
     const fails = [];
     for(const m of models){
+      show('② AIに送信テスト中（' + m + '）');
       try {
-        const r = await fetch(
+        const r = await timedFetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(k)}`,
           {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({contents: [{parts: [{text: '「はい」とだけ答えてください'}]}]})
-          }
+          },
+          20000
         );
         if(r.ok){ okModel = m; break; }
         let msg = 'HTTP ' + r.status;
         try { const b = await r.json(); if(b.error?.message) msg += ' / ' + b.error.message; } catch(e){}
         fails.push(m + ': ' + msg);
       } catch(e){
-        fails.push(m + ': ' + (e.name || '') + ' ' + (e.message || '通信不可'));
+        fails.push(m + ': ' + netErrText(e, 20000));
       }
     }
     if(okModel){
@@ -344,28 +350,31 @@ async function testConnection(){
       lines.push('② AIへの送信：NG → ' + fails.join(' ／ '));
     }
   } catch(e){
-    lines.push('② AIへの送信：NG → ' + (e.name || '') + ' ' + (e.message || '通信不可'));
+    lines.push('② AIへの送信：NG → ' + netErrText(e, 20000));
   }
 
   // ③ Googleサーバーへの到達確認（応答の中身は見ない疎通テスト）
+  show('③ Googleサーバーへの到達を確認中');
   try {
-    await fetch('https://generativelanguage.googleapis.com/', {mode: 'no-cors'});
+    await timedFetch('https://generativelanguage.googleapis.com/', {mode: 'no-cors'}, 8000);
     lines.push('③ Googleサーバーへの到達：OK');
   } catch(e){
     lines.push('③ Googleサーバーへの到達：NG');
   }
 
   // ④ 比較用：別のサーバーへの通信
+  show('④ 別のサーバーとの通信を確認中');
   try {
-    const r = await fetch('https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/package.json');
+    const r = await timedFetch('https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/package.json', {}, 8000);
     lines.push('④ 別サーバーとの通信：' + (r.ok ? 'OK' : 'NG（HTTP ' + r.status + '）'));
   } catch(e){
     lines.push('④ 別サーバーとの通信：NG');
   }
 
   // ⑤ 自分のサイトとの通信（同じサーバーへの通信）
+  show('⑤ 自分のサイトとの通信を確認中');
   try {
-    const r = await fetch(location.pathname + '?ping=' + Date.now(), {cache: 'no-store'});
+    const r = await timedFetch(location.pathname + '?ping=' + Date.now(), {cache: 'no-store'}, 8000);
     lines.push('⑤ 自分のサイトとの通信：' + (r.ok ? 'OK' : 'NG（HTTP ' + r.status + '）'));
   } catch(e){
     lines.push('⑤ 自分のサイトとの通信：NG');
@@ -387,6 +396,8 @@ async function testConnection(){
     } else {
       lines.push('【判定】通信がすべて失敗しています。①機内モードを一度オン→オフ、②Wi-Fiに切り替え、で再テストしてください。それでもダメなら、別のスマホで同じURLを開いてテストしてみてください。');
     }
+  } else if(/②[^③④⑤]*NG/.test(joined) && /タイムアウト/.test(joined) && !/(503|429|high demand|UNAVAILABLE|overloaded)/i.test(joined)){
+    lines.push('【判定】キーと通信は正常ですが、AIからの返事が時間内に届きませんでした。①Wi-Fiとモバイル回線を切り替える、②VPN・セキュリティアプリ・広告ブロックを一時オフにする、のどちらかで再テストしてください。それでもダメなら、少し時間をおいてお試しください。');
   } else if(/②[^③④⑤]*NG/.test(joined) && /(503|429|high demand|UNAVAILABLE|overloaded)/i.test(joined)){
     lines.push('【判定】通信もキーも正常ですが、GoogleのAIが混み合っています。数分待ってからもう一度お試しください。');
   }
@@ -483,7 +494,7 @@ const GEMINI_PROMPT = `この画像に写っている日本語の文章を読み
 async function tryModel(model, base64, mediaType){
   let res;
   try {
-    res = await fetch(
+    res = await timedFetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
       {
         method: 'POST',
@@ -499,7 +510,8 @@ async function tryModel(model, base64, mediaType){
             responseMimeType: 'application/json'
           }
         })
-      }
+      },
+      60000   /* 写真つきは時間がかかるので長め（60秒） */
     );
   } catch(e){
     return {done: false, retry: true, msg: model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')'};
