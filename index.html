@@ -230,9 +230,9 @@
   高精度モードでは写真がGoogleのAIに送信されます
 </footer>
 
-<script src="common.js?v=4"></script>
+<script src="common.js?v=5"></script>
 <script>
-const APP_VERSION = 'v6.12';
+const APP_VERSION = 'v6.13';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -459,10 +459,19 @@ async function handleFile(file){
   $('preview').style.display = 'block';
 
   try {
-    if(apiKey()){
-      await runGemini(file);
-    } else {
-      await runOffline(file);
+    /* 最後の安全装置：どこかで止まっても、2分たったら必ずお知らせを出して終わらせる */
+    let watchdog;
+    const limit = new Promise((_, rej) => {
+      watchdog = setTimeout(() => {
+        const e = new Error('watchdog');
+        e.userMessage = '2分たっても読み取りが終わらなかったため、とちゅうでやめました。\n・電波のよい場所で「やり直す」を押してください\n・文字が多いときは、半分ずつに分けて撮ってください\n・それでもダメなときは、設定の「接続テスト」の結果をClaudeに見せてください';
+        rej(e);
+      }, 120000);
+    });
+    try {
+      await Promise.race([apiKey() ? runGemini(file) : runOffline(file), limit]);
+    } finally {
+      clearTimeout(watchdog);
     }
   } catch(err){
     console.error(err);

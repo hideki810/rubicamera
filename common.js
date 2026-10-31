@@ -115,7 +115,14 @@ function isTransient(status, detail){
 function timedFetch(url, opts, ms){
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
+  /* 返事の「中身」を受け取り終わるまで時間制限を続ける
+     （見出しだけ届いて中身が届かないまま止まるのを防ぐ） */
   return fetch(url, Object.assign({}, opts || {}, {signal: ctrl.signal}))
+    .then(async r => {
+      if(r.type === 'opaque') return r;
+      const body = await r.text();
+      return new Response(body, {status: r.status, statusText: r.statusText, headers: r.headers});
+    })
     .finally(() => clearTimeout(t));
 }
 /* 通信エラーを人に見せる文に直す（タイムアウトは分かりやすく） */
