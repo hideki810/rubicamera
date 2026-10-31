@@ -232,7 +232,7 @@
 
 <script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v6.10';
+const APP_VERSION = 'v6.11';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -484,6 +484,7 @@ const GEMINI_PROMPT = `この画像に写っている日本語の文章を読み
 - 文章を先頭から順に区切り、漢字を含む部分には "r" に読みを入れる
 - 送り仮名は分けて、漢字部分だけに読みを付ける（例：「読み」→ {"t":"読","r":"よ"},{"t":"み","r":null}）
 - 漢字を含まない部分（ひらがな、カタカナ、数字、記号、改行）は "r": null
+- 熟語（例：「蛍光染料」「使用」「注意」）や見出し・注意書きの漢字も、1つ残らず必ず読みを付ける。漢字を含むのに "r": null にしてはいけない
 - 改行は "t":"\\n","r":null として保持する
 - 読みは文脈に合わせた正しい読み方にする
 - 画像に日本語の文章がない場合は {"segments":[]} と答える`;
@@ -565,7 +566,7 @@ async function tryModel(model, base64, mediaType){
       parsedSegments = salvage;
       truncated = true;
     }
-    segments = parsedSegments;
+    segments = await fillMissingReadings(parsedSegments);
     if(segments.length === 0){
       showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
       return {done: true};
@@ -766,6 +767,44 @@ function buildSegments(text, tokenizer){
     }
     if(i < lines.length - 1) out.push({t: '\n', r: null});
   });
+  return out;
+}
+
+/* ---------- AIがルビを付け忘れた漢字を、辞書（kuromoji）で補う ----------
+   AIは熟語や長い文の漢字をまとめて「読みなし」で返すことがある。
+   読みのない漢字が残っていたら、その部分だけ辞書で読みを付け直す。
+   辞書の読み込みに失敗・時間切れのときは、AIの結果をそのまま使う。 */
+async function fillMissingReadings(list){
+  const needs = list.some(x => x && x.t && x.t !== '\n' && !x.r && KANJI_RE.test(x.t));
+  if(!needs) return list;
+  let tokenizer;
+  try {
+    setStatus('ふりがなの付け忘れを確認しています…', 0.9);
+    tokenizer = await Promise.race([
+      getTokenizer(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))
+    ]);
+  } catch(e){
+    return list;
+  }
+  const out = [];
+  let buf = '';
+  /* 読みなしの部分をつなげてから辞書にかける（単語の区切りを正しくするため） */
+  const flush = () => {
+    if(!buf) return;
+    if(KANJI_RE.test(buf)){
+      for(const tok of tokenizer.tokenize(buf)) pushToken(out, tok.surface_form, tok.reading);
+    } else {
+      out.push({t: buf, r: null});
+    }
+    buf = '';
+  };
+  for(const x of list){
+    if(!x || !x.t) continue;
+    if(x.t === '\n' || x.r){ flush(); out.push(x); }
+    else buf += x.t;
+  }
+  flush();
   return out;
 }
 
