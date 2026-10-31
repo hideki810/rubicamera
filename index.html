@@ -232,7 +232,7 @@
 
 <script src="common.js?v=5"></script>
 <script>
-const APP_VERSION = 'v6.13';
+const APP_VERSION = 'v6.14';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -583,7 +583,7 @@ async function tryModel(model, base64, mediaType, timeoutMs){
       parsedSegments = salvage;
       truncated = true;
     }
-    segments = await fillMissingReadings(parsedSegments);
+    segments = await fillMissingReadings(parsedSegments, model);
     if(segments.length === 0){
       showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
       return {done: true};
@@ -599,20 +599,33 @@ async function tryModel(model, base64, mediaType, timeoutMs){
 }
 
 async function runGemini(file){
-  setStatus('AIが文字を読み取っています…', 0.3);
-  /* ふりがな補完用の辞書を、AIの返事を待つあいだに先に読み込んでおく */
-  getTokenizer().catch(() => {});
-  const {base64, mediaType} = await toBase64(file, 1568, .85, false);
   const started = Date.now();
-  const DEADLINE = started + 90000;   /* 全体で最大90秒。これを過ぎたらあきらめてお知らせする */
-  /* 待っていることが分かるよう、経過秒数を表示し続ける */
+  /* 待っていることが分かるよう、最初から経過秒数とバージョンを表示し続ける
+     （画面録画だけで「どの段階で止まっているか」「新しい版か」が分かるように） */
   const ticker = setInterval(() => {
     if($('status').style.display === 'none') return;
     const el = $('statusText');
-    el.textContent = el.textContent.replace(/（\d+秒）$/, '') + '（' + Math.round((Date.now() - started) / 1000) + '秒）';
+    el.textContent = el.textContent.replace(/（\d+秒・v[\d.]+）$/, '')
+      + '（' + Math.round((Date.now() - started) / 1000) + '秒・' + APP_VERSION + '）';
   }, 1000);
   try {
-    return await runGeminiInner(base64, mediaType, DEADLINE);
+    /* ① 写真の準備（ここで止まらないよう10秒で打ち切り、だめなら元の写真のまま送る） */
+    setStatus('写真を準備しています…', 0.15);
+    let prepared;
+    try {
+      prepared = await Promise.race([
+        toBase64(file, 1568, .85, false),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('prep timeout')), 10000))
+      ]);
+    } catch(e){
+      if(e.userMessage) throw e;
+      setStatus('写真を準備しています…（そのまま送ります）', 0.2);
+      prepared = {base64: await fileToBase64(file), mediaType: file.type || 'image/jpeg'};
+    }
+    /* ② AIに送って読み取り（全体で最大90秒） */
+    setStatus('AIが文字を読み取っています…', 0.3);
+    const DEADLINE = Date.now() + 90000;
+    return await runGeminiInner(prepared.base64, prepared.mediaType, DEADLINE);
   } finally {
     clearInterval(ticker);
   }
@@ -810,42 +823,75 @@ function buildSegments(text, tokenizer){
   return out;
 }
 
-/* ---------- AIがルビを付け忘れた漢字を、辞書（kuromoji）で補う ----------
+/* ---------- AIがルビを付け忘れた漢字を、AIにもう一度聞いて補う ----------
    AIは熟語や長い文の漢字をまとめて「読みなし」で返すことがある。
-   読みのない漢字が残っていたら、その部分だけ辞書で読みを付け直す。
-   辞書の読み込みに失敗・時間切れのときは、AIの結果をそのまま使う。 */
-async function fillMissingReadings(list){
-  const needs = list.some(x => x && x.t && x.t !== '\n' && !x.r && KANJI_RE.test(x.t));
-  if(!needs) return list;
-  let tokenizer;
-  try {
-    setStatus('ふりがなの付け忘れを確認しています…', 0.9);
-    tokenizer = await Promise.race([
-      getTokenizer(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
-    ]);
-  } catch(e){
-    return list;
-  }
+   読みのない部分の文字だけをAIに送り直して、読みを付けてもらう（写真は送らないので速い）。
+   ※辞書（kuromoji）はスマホによっては読み込みで画面が固まるため、ここでは使わない。
+   失敗・時間切れ（20秒）のときは、最初の結果をそのまま使う。 */
+async function fillMissingReadings(list, model){
+  const isMissing = x => x && x.t && x.t !== '\n' && !x.r && KANJI_RE.test(x.t);
+  /* 読みなしの部分を、前後の読みなしの文字とつなげて「かたまり」にする */
+  const chunks = [];
   const out = [];
-  let buf = '';
-  /* 読みなしの部分をつなげてから辞書にかける（単語の区切りを正しくするため） */
+  let buf = [];
   const flush = () => {
-    if(!buf) return;
-    if(KANJI_RE.test(buf)){
-      for(const tok of tokenizer.tokenize(buf)) pushToken(out, tok.surface_form, tok.reading);
-    } else {
-      out.push({t: buf, r: null});
-    }
-    buf = '';
+    if(!buf.length) return;
+    const text = buf.map(x => x.t).join('');
+    if(KANJI_RE.test(text)){ chunks.push(text); out.push({chunk: chunks.length - 1, text}); }
+    else out.push({t: text, r: null});
+    buf = [];
   };
   for(const x of list){
     if(!x || !x.t) continue;
     if(x.t === '\n' || x.r){ flush(); out.push(x); }
-    else buf += x.t;
+    else buf.push(x);
   }
   flush();
-  return out;
+  if(!chunks.length || !list.some(isMissing)) return list;
+
+  setStatus('ふりがなの付け忘れを確認しています…', 0.9);
+  const prompt = '次の各文の漢字に、ひらがなの読み（ルビ）を付けてください。\n'
+    + '必ず次のJSON形式のみで答えてください：{"items":[{"segments":[{"t":"漢字部分","r":"よみ"},{"t":"かななど","r":null}]}]}\n'
+    + '・items は入力と同じ数・同じ順番にする\n'
+    + '・送り仮名は分け、漢字を含む部分には必ず読みを入れる\n'
+    + '・文字は1文字も変えたり省いたりしない\n\n'
+    + chunks.map((c, i) => (i + 1) + '. ' + c).join('\n');
+  let items = null;
+  try {
+    let gc = {responseMimeType: 'application/json'};
+    if(/^gemini-3/.test(model)) gc.thinkingConfig = {thinkingLevel: 'low'};
+    else if(/^gemini-2\.5/.test(model)) gc.thinkingConfig = {thinkingBudget: 0};
+    const res = await timedFetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: gc})
+      },
+      20000
+    );
+    if(!res.ok) return list;
+    const data = await res.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+    items = parsed.items;
+  } catch(e){
+    return list;
+  }
+  if(!Array.isArray(items)) return list;
+
+  const result = [];
+  for(const o of out){
+    if(o.chunk === undefined){ result.push(o); continue; }
+    const segs = items[o.chunk]?.segments;
+    /* 返ってきた文字が元と同じときだけ採用する（読み取った文章が変わらないように） */
+    if(Array.isArray(segs) && segs.map(x => x && x.t || '').join('') === o.text){
+      for(const x of segs) if(x && x.t) result.push({t: x.t, r: (x.r && KANJI_RE.test(x.t)) ? x.r : null});
+    } else {
+      result.push({t: o.text, r: null});
+    }
+  }
+  return result;
 }
 
 function renderResult(){
