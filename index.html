@@ -232,7 +232,7 @@
 
 <script src="common.js?v=4"></script>
 <script>
-const APP_VERSION = 'v6.11';
+const APP_VERSION = 'v6.12';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -492,30 +492,38 @@ const GEMINI_PROMPT = `この画像に写っている日本語の文章を読み
 /* 1つのモデルに1回問い合わせる。戻り値：
    {done:true}                      … 成功（結果表示まで完了）
    {done:false, retry:true|false, msg} … 失敗（retry=true は混雑などで再挑戦の価値あり） */
-async function tryModel(model, base64, mediaType){
+async function tryModel(model, base64, mediaType, timeoutMs){
+  const ms = timeoutMs || 35000;
+  const send = gc => timedFetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
+    {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {inline_data: {mime_type: mediaType, data: base64}},
+            {text: GEMINI_PROMPT}
+          ]
+        }],
+        generationConfig: gc
+      })
+    },
+    ms
+  );
   let res;
   try {
-    res = await timedFetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey())}`,
-      {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              {inline_data: {mime_type: mediaType, data: base64}},
-              {text: GEMINI_PROMPT}
-            ]
-          }],
-          generationConfig: {
-            responseMimeType: 'application/json'
-          }
-        })
-      },
-      60000   /* 写真つきは時間がかかるので長め（60秒） */
-    );
+    /* 応答を速くするため「考える時間」を短くして送る（ルビカメラ２と同じ方式）。
+       指定方法はモデル世代で異なり、未対応（400）なら設定なしで送り直す */
+    let gc = {responseMimeType: 'application/json'};
+    if(/^gemini-3/.test(model)) gc.thinkingConfig = {thinkingLevel: 'low'};
+    else if(/^gemini-2\.5/.test(model)) gc.thinkingConfig = {thinkingBudget: 0};
+    res = await send(gc);
+    if(!res.ok && res.status === 400 && gc.thinkingConfig){
+      res = await send({responseMimeType: 'application/json'});
+    }
   } catch(e){
-    return {done: false, retry: true, msg: model + ': 通信エラー(' + (e.name || '') + ' ' + (e.message || '') + ')'};
+    return {done: false, retry: e.name !== 'AbortError', msg: model + ': 通信エラー(' + netErrText(e, ms) + ')'};
   }
 
   if(!res.ok){
@@ -583,7 +591,25 @@ async function tryModel(model, base64, mediaType){
 
 async function runGemini(file){
   setStatus('AIが文字を読み取っています…', 0.3);
+  /* ふりがな補完用の辞書を、AIの返事を待つあいだに先に読み込んでおく */
+  getTokenizer().catch(() => {});
   const {base64, mediaType} = await toBase64(file, 1568, .85, false);
+  const started = Date.now();
+  const DEADLINE = started + 90000;   /* 全体で最大90秒。これを過ぎたらあきらめてお知らせする */
+  /* 待っていることが分かるよう、経過秒数を表示し続ける */
+  const ticker = setInterval(() => {
+    if($('status').style.display === 'none') return;
+    const el = $('statusText');
+    el.textContent = el.textContent.replace(/（\d+秒）$/, '') + '（' + Math.round((Date.now() - started) / 1000) + '秒）';
+  }, 1000);
+  try {
+    return await runGeminiInner(base64, mediaType, DEADLINE);
+  } finally {
+    clearInterval(ticker);
+  }
+}
+
+async function runGeminiInner(base64, mediaType, DEADLINE){
 
   const models = await getModelCandidates();
   const errors = [];
@@ -600,13 +626,15 @@ async function runGemini(file){
       } else {
         setStatus('AIが混み合っています。もう一度挑戦中…（' + (round + 1) + '/' + MAX_ROUNDS + '回目）', 0.5 + round * 0.15);
       }
-      const r = await tryModel(model, base64, mediaType);
+      const remain = DEADLINE - Date.now();
+      if(remain < 5000){ errors.push('時間切れ（90秒以内に読み取れませんでした）'); pending = []; break; }
+      const r = await tryModel(model, base64, mediaType, Math.min(35000, remain));
       if(r.done) return;
       errors.push(r.msg);
       if(r.retry){ sawTransient = true; next.push(model); }
     }
     pending = next;
-    if(pending.length && round < MAX_ROUNDS - 1){
+    if(pending.length && round < MAX_ROUNDS - 1 && DEADLINE - Date.now() > WAITS[round] + 5000){
       const sec = Math.round(WAITS[round] / 1000);
       setStatus('AIが混み合っています。' + sec + '秒待ってからもう一度挑戦します…', 0.5 + round * 0.15);
       await sleep(WAITS[round]);
@@ -614,7 +642,10 @@ async function runGemini(file){
   }
 
   const err = new Error('gemini failed');
-  if(sawTransient){
+  const timedOut = errors.some(m => /時間切れ|タイムアウト/.test(m));
+  if(timedOut && !sawTransient){
+    err.userMessage = '読み取りに時間がかかりすぎたため、とちゅうでやめました。\n・文字が多いときは、半分ずつに分けて撮ってください\n・電波のよい場所で、もう一度「やり直す」を押してください\n\n【詳細】' + errors.join(' ／ ');
+  } else if(sawTransient){
     err.userMessage = 'ただいまGoogleのAIが混み合っていて、読み取れませんでした。\n1〜2分ほど待ってから、もう一度「やり直す」を押して撮影してください。\n（アプリの不具合ではありません。混雑は一時的なことがほとんどです）\n\n【詳細】' + errors.slice(-models.length).join(' ／ ')
       + '\n直らないときは、このエラー文をClaudeに見せてください。';
   } else {
@@ -782,7 +813,7 @@ async function fillMissingReadings(list){
     setStatus('ふりがなの付け忘れを確認しています…', 0.9);
     tokenizer = await Promise.race([
       getTokenizer(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
     ]);
   } catch(e){
     return list;
