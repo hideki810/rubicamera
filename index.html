@@ -232,7 +232,7 @@
 
 <script src="common.js?v=5"></script>
 <script>
-const APP_VERSION = 'v6.14';
+const APP_VERSION = 'v6.15';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -524,12 +524,14 @@ async function tryModel(model, base64, mediaType, timeoutMs){
   try {
     /* 応答を速くするため「考える時間」を短くして送る（ルビカメラ２と同じ方式）。
        指定方法はモデル世代で異なり、未対応（400）なら設定なしで送り直す */
-    let gc = {responseMimeType: 'application/json'};
+    /* 文字の多い写真でも途中で切れないよう、返事の長さの上限を大きくしておく */
+    const base = {responseMimeType: 'application/json', maxOutputTokens: 16384};
+    let gc = Object.assign({}, base);
     if(/^gemini-3/.test(model)) gc.thinkingConfig = {thinkingLevel: 'low'};
     else if(/^gemini-2\.5/.test(model)) gc.thinkingConfig = {thinkingBudget: 0};
     res = await send(gc);
     if(!res.ok && res.status === 400 && gc.thinkingConfig){
-      res = await send({responseMimeType: 'application/json'});
+      res = await send(base);
     }
   } catch(e){
     return {done: false, retry: e.name !== 'AbortError', msg: model + ': 通信エラー(' + netErrText(e, ms) + ')'};
