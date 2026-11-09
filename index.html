@@ -232,7 +232,7 @@
 
 <script src="common.js?v=5"></script>
 <script>
-const APP_VERSION = 'v6.15';
+const APP_VERSION = 'v6.16';
 let segments = [];
 let tokenizerPromise = null;
 
@@ -494,7 +494,8 @@ const GEMINI_PROMPT = `この画像に写っている日本語の文章を読み
 - 送り仮名は分けて、漢字部分だけに読みを付ける（例：「読み」→ {"t":"読","r":"よ"},{"t":"み","r":null}）
 - 漢字を含まない部分（ひらがな、カタカナ、数字、記号、改行）は "r": null
 - 熟語（例：「蛍光染料」「使用」「注意」）や見出し・注意書きの漢字も、1つ残らず必ず読みを付ける。漢字を含むのに "r": null にしてはいけない
-- 改行は "t":"\\n","r":null として保持する
+- 改行は "t":"\\n","r":null として保持する。画像の中で行が変わるところ（行の終わり・見出しのあと・箇条書きの1項目ごと）には、必ず改行を入れる。文章を1行につなげてはいけない
+- 段落と段落のあいだ（空いている行）は、改行を2つ続けて入れる
 - 読みは文脈に合わせた正しい読み方にする
 - 画像に日本語の文章がない場合は {"segments":[]} と答える`;
 
@@ -585,7 +586,7 @@ async function tryModel(model, base64, mediaType, timeoutMs){
       parsedSegments = salvage;
       truncated = true;
     }
-    segments = await fillMissingReadings(parsedSegments, model);
+    segments = await fillMissingReadings(splitLineBreaks(parsedSegments), model);
     if(segments.length === 0){
       showError('日本語の文章が見つかりませんでした。文字が写るように撮り直してください。');
       return {done: true};
@@ -825,6 +826,25 @@ function buildSegments(text, tokenizer){
   return out;
 }
 
+/* ---------- 改行を独立した区切りにそろえる ----------
+   AIは「です。\n」のように文字と改行を1つにまとめて返すことがある。
+   そのままだと画面では改行が無視されて文章が1行につながるため、
+   改行を {t:'\n'} の区切りとして切り出す。（\r\n や、文字として返ってきた「\n」も改行として扱う） */
+function splitLineBreaks(list){
+  const out = [];
+  for(const x of list){
+    if(!x || typeof x.t !== 'string' || !x.t) continue;
+    const text = x.t.replace(/\\r\\n|\\n|\\r/g, '\n').replace(/\r\n?/g, '\n');
+    if(text === '\n' || !text.includes('\n')){ out.push({t: text, r: x.r || null}); continue; }
+    const parts = text.split('\n');
+    parts.forEach((part, i) => {
+      if(part) out.push({t: part, r: (x.r && KANJI_RE.test(part)) ? x.r : null});
+      if(i < parts.length - 1) out.push({t: '\n', r: null});
+    });
+  }
+  return out;
+}
+
 /* ---------- AIがルビを付け忘れた漢字を、AIにもう一度聞いて補う ----------
    AIは熟語や長い文の漢字をまとめて「読みなし」で返すことがある。
    読みのない部分の文字だけをAIに送り直して、読みを付けてもらう（写真は送らないので速い）。
@@ -893,7 +913,7 @@ async function fillMissingReadings(list, model){
       result.push({t: o.text, r: null});
     }
   }
-  return result;
+  return splitLineBreaks(result);
 }
 
 function renderResult(){
