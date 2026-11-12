@@ -30,11 +30,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # GitHubのランナーにはAndroid SDKが最初から入っているので、
+      # 追加のセットアップアクションは使わず、必要なパッケージだけ入れる
       - name: Install SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build APK (unsigned)
         run: bash android/build-apk.sh
