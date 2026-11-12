@@ -31,11 +31,26 @@ jobs:
           java-version: '17'
 
       # GitHubのランナーにはAndroid SDKが最初から入っているので、
-      # 追加のセットアップアクションは使わず、必要なパッケージだけ入れる
+      # 追加のセットアップアクションは使わず、必要なパッケージだけ入れる。
+      # sdkmanager の場所はイメージによって違うので、探してから使う。
+      # 見つからなければ公式のコマンドラインツールをダウンロードする。
       - name: Install SDK packages
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found; downloading command-line tools..."
+            mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+            curl -sSL -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+            cp -r /tmp/cmdtools/cmdline-tools/. "$ANDROID_HOME/cmdline-tools/latest/"
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build APK (unsigned)
         run: bash android/build-apk.sh
