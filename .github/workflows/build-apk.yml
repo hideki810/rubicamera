@@ -19,6 +19,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_B64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +42,7 @@ jobs:
       # 署名は Secrets が登録されている場合のみ行う
       # 必要な Secrets: KEYSTORE_B64 / KEYSTORE_PASSWORD / KEY_ALIAS
       - name: Sign APK
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        if: env.HAS_KEYSTORE == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
