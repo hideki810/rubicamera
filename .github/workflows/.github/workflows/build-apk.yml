@@ -1,0 +1,77 @@
+name: Build RubiCamera APK
+
+# 手動実行（Actionsタブの「Run workflow」）か、
+# アプリ本体・ビルド部品を更新したときに自動でビルドする
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-apk.yml'
+      - 'index.html'
+      - 'imi.html'
+      - 'live.html'
+      - 'tsukaikata.html'
+      - 'common.js'
+      - 'sw.js'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build APK (unsigned)
+        run: bash android/build-apk.sh
+
+      # 署名は Secrets が登録されている場合のみ行う
+      # 必要な Secrets: KEYSTORE_B64 / KEYSTORE_PASSWORD / KEY_ALIAS
+      - name: Sign APK
+        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/apksigner" sign \
+            --ks /tmp/release.keystore \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEYSTORE_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" \
+            --out rubicamera.apk \
+            android/build/app-aligned.apk
+          "$BT/apksigner" verify rubicamera.apk
+
+      - name: Prepare artifact
+        run: |
+          if [ -f rubicamera.apk ]; then
+            echo "Signed APK is ready."
+          else
+            cp android/build/app-aligned.apk rubicamera-unsigned.apk
+            echo "::warning::Secrets未登録のため未署名APKです。KEYSTORE_B64 / KEYSTORE_PASSWORD / KEY_ALIAS を登録すると自動で署名されます。"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rubicamera-apk
+          path: |
+            rubicamera.apk
+            rubicamera-unsigned.apk
+          if-no-files-found: error
+          retention-days: 90
