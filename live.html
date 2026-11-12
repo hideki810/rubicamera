@@ -286,6 +286,7 @@ setupPageNav('live.html');
 
 /* ---------- 状態 ---------- */
 let stream = null;
+let frontCamera = false;  /* 内側カメラ使用中か（プレビューと取り込み画像の左右反転に使う） */
 let running = false;
 let state = 'idle';           // idle | watching | scanning | frozen
 let loopTimer = null;
@@ -360,6 +361,14 @@ async function startCamera(){
     return;
   }
   $('cam').srcObject = stream;
+  /* 内側カメラだったらプレビューを鏡像表示にする（端末ごとに判定） */
+  try {
+    const track = stream.getVideoTracks()[0];
+    const st = (track && track.getSettings) ? track.getSettings() : {};
+    const label = (track && track.label) ? track.label : '';
+    frontCamera = (st.facingMode === 'user') || /front/i.test(label);
+    $('cam').style.transform = frontCamera ? 'scaleX(-1)' : '';
+  } catch(e){}
   try { await $('cam').play(); } catch(e){}
   running = true;
   state = 'watching';
@@ -477,7 +486,9 @@ function captureFrame(){
   const h = Math.round(v.videoHeight * scale);
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
-  canvas.getContext('2d').drawImage(v, 0, 0, w, h);
+  const cx = canvas.getContext('2d');
+  if(frontCamera){ cx.translate(w, 0); cx.scale(-1, 1); }  /* 内側カメラは文字が鏡文字になるので戻す */
+  cx.drawImage(v, 0, 0, w, h);
   return {dataUrl: canvas.toDataURL('image/jpeg', 0.7), w, h};
 }
 
